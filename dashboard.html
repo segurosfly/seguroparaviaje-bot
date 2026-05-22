@@ -7,29 +7,16 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     :root {
-      --bg: #0f1117;
-      --card: #1a1d27;
-      --border: #2a2d3e;
-      --accent: #6c63ff;
-      --accent2: #00d4aa;
-      --accent3: #ff6b6b;
-      --accent4: #ffd166;
-      --text: #e0e0e0;
-      --muted: #8b8fa8;
-      --green: #06d6a0;
-      --red: #ef476f;
+      --bg: #0f1117; --card: #1a1d27; --border: #2a2d3e;
+      --accent: #6c63ff; --accent2: #00d4aa; --accent3: #ff6b6b; --accent4: #ffd166;
+      --text: #e0e0e0; --muted: #8b8fa8; --green: #06d6a0; --red: #ef476f;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
-
-    /* HEADER */
     header {
       background: linear-gradient(135deg, #1a1d27 0%, #0f1117 100%);
       border-bottom: 1px solid var(--border);
-      padding: 20px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      padding: 20px 32px; display: flex; align-items: center; justify-content: space-between;
       position: sticky; top: 0; z-index: 100;
     }
     .logo { display: flex; align-items: center; gap: 12px; }
@@ -38,42 +25,14 @@
     .logo span { font-size: 12px; color: var(--muted); }
     .header-right { display: flex; align-items: center; gap: 16px; }
     .last-updated { font-size: 12px; color: var(--muted); }
-    .btn-refresh {
-      background: var(--accent); color: #fff; border: none; border-radius: 8px;
-      padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
-      transition: opacity 0.2s;
-    }
+    .btn-refresh { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
     .btn-refresh:hover { opacity: 0.85; }
-    .status-dot {
-      width: 10px; height: 10px; border-radius: 50%; background: var(--green);
-      box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite;
-    }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-
-    /* MAIN LAYOUT */
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.error { background: var(--red); box-shadow: 0 0 6px var(--red); }
     main { max-width: 1400px; margin: 0 auto; padding: 32px; }
-
-    /* KPI CARDS */
-    .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px;
-      margin-bottom: 32px;
-    }
-    .kpi-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px;
-      position: relative;
-      overflow: hidden;
-      transition: transform 0.2s;
-    }
-    .kpi-card:hover { transform: translateY(-2px); }
-    .kpi-card::before {
-      content: '';
-      position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; position: relative; overflow: hidden; }
+    .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
     .kpi-card.blue::before { background: var(--accent); }
     .kpi-card.green::before { background: var(--accent2); }
     .kpi-card.red::before { background: var(--accent3); }
@@ -81,67 +40,24 @@
     .kpi-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
     .kpi-value { font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 4px; }
     .kpi-sub { font-size: 12px; color: var(--muted); }
-    .kpi-change { font-size: 13px; font-weight: 600; margin-top: 8px; }
-    .kpi-change.up { color: var(--red); }
-    .kpi-change.down { color: var(--green); }
-    .kpi-change.neutral { color: var(--muted); }
     .kpi-icon { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); font-size: 36px; opacity: 0.15; }
-
-    /* SECTION TITLES */
-    .section-title {
-      font-size: 16px; font-weight: 700; color: #fff;
-      margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
-    }
-    .section-title .badge {
-      background: var(--accent); color: #fff;
-      font-size: 10px; padding: 2px 8px; border-radius: 20px;
-    }
-
-    /* CHARTS GRID */
-    .charts-grid {
-      display: grid;
-      grid-template-columns: 2fr 1fr;
-      gap: 20px;
-      margin-bottom: 32px;
-    }
+    .section-title { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+    .section-title .badge { background: var(--accent); color: #fff; font-size: 10px; padding: 2px 8px; border-radius: 20px; }
+    .charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 32px; }
     @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
-
-    .chart-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px;
-    }
+    .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; }
     .chart-card canvas { max-height: 280px; }
-
-    /* DURATION TABS */
     .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
-    .tab-btn {
-      background: var(--border); border: none; color: var(--muted);
-      padding: 6px 16px; border-radius: 8px; font-size: 13px; cursor: pointer;
-      transition: all 0.2s;
-    }
+    .tab-btn { background: var(--border); border: none; color: var(--muted); padding: 6px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.2s; }
     .tab-btn.active { background: var(--accent); color: #fff; font-weight: 600; }
-
-    /* TABLE */
-    .table-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px;
-      margin-bottom: 32px;
-      overflow-x: auto;
-    }
+    .table-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 32px; overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     thead tr { border-bottom: 1px solid var(--border); }
     th { text-align: left; padding: 10px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 600; }
     td { padding: 12px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: rgba(108,99,255,0.05); }
-    .plan-badge {
-      display: inline-block; padding: 3px 10px; border-radius: 20px;
-      font-size: 11px; font-weight: 700; text-transform: uppercase;
-    }
+    .plan-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
     .plan-esencial { background: rgba(0,212,170,0.15); color: var(--accent2); }
     .plan-estandar { background: rgba(108,99,255,0.15); color: var(--accent); }
     .plan-ideal { background: rgba(255,209,102,0.15); color: var(--accent4); }
@@ -150,40 +66,18 @@
     .change-neutral { color: var(--muted); }
     .status-ok { color: var(--green); }
     .status-err { color: var(--red); }
-
-    /* LOADING / EMPTY */
-    .loading { text-align: center; padding: 60px; color: var(--muted); font-size: 14px; }
-    .spinner {
-      width: 32px; height: 32px; border: 3px solid var(--border);
-      border-top-color: var(--accent); border-radius: 50%;
-      animation: spin 0.8s linear infinite; margin: 0 auto 16px;
-    }
+    .empty-state { text-align: center; padding: 60px 20px; }
+    .empty-state .empty-icon { font-size: 64px; margin-bottom: 16px; opacity: 0.4; }
+    .empty-state h3 { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+    .empty-state p { font-size: 14px; color: var(--muted); max-width: 400px; margin: 0 auto 16px; line-height: 1.6; }
+    .empty-state .step { display: inline-block; background: rgba(108,99,255,0.1); border: 1px solid rgba(108,99,255,0.3); border-radius: 8px; padding: 8px 16px; font-size: 12px; color: var(--accent); margin: 4px; }
+    .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
     @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* FOOTER */
-    footer {
-      text-align: center; padding: 24px; color: var(--muted); font-size: 12px;
-      border-top: 1px solid var(--border);
-    }
+    footer { text-align: center; padding: 24px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); }
     footer a { color: var(--accent); text-decoration: none; }
-
-    /* ALERT BANNERS */
-    .alert-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 32px; }
-    .alert-card {
-      border-radius: 12px; padding: 16px 20px;
-      display: flex; align-items: flex-start; gap: 12px;
-      border: 1px solid;
-    }
-    .alert-card.info { background: rgba(108,99,255,0.1); border-color: rgba(108,99,255,0.3); }
-    .alert-card.warn { background: rgba(255,209,102,0.1); border-color: rgba(255,209,102,0.3); }
-    .alert-card.danger { background: rgba(239,71,111,0.1); border-color: rgba(239,71,111,0.3); }
-    .alert-icon { font-size: 22px; flex-shrink: 0; margin-top: 2px; }
-    .alert-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
-    .alert-body { font-size: 12px; color: var(--muted); }
   </style>
 </head>
 <body>
-
 <header>
   <div class="logo">
     <div class="logo-icon">✈️</div>
@@ -194,111 +88,121 @@
   </div>
   <div class="header-right">
     <div class="status-dot" id="statusDot"></div>
-    <span class="last-updated" id="lastUpdated">Cargando datos...</span>
+    <span class="last-updated" id="lastUpdated">Cargando...</span>
     <button class="btn-refresh" onclick="loadData()">↻ Actualizar</button>
   </div>
 </header>
 
 <main>
-
-  <!-- KPI CARDS -->
   <div class="kpi-grid" id="kpiGrid">
-    <div class="loading"><div class="spinner"></div>Cargando KPIs...</div>
+    <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">
+      <div class="spinner"></div>Cargando datos...
+    </div>
   </div>
 
-  <!-- ALERTS -->
-  <div class="alert-grid" id="alertGrid" style="display:none"></div>
-
-  <!-- CHARTS -->
   <div class="section-title">📈 Evolución de Precios</div>
   <div class="charts-grid">
     <div class="chart-card">
-      <div class="section-title" style="margin-bottom:12px; font-size:14px;">
-        Histórico por Plan
-        <div class="tabs" style="margin:0 0 0 auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <span style="font-size:14px;font-weight:700;color:#fff">Histórico por Plan</span>
+        <div class="tabs">
           <button class="tab-btn active" onclick="switchDuration(10,this)">10 días</button>
           <button class="tab-btn" onclick="switchDuration(20,this)">20 días</button>
           <button class="tab-btn" onclick="switchDuration(30,this)">30 días</button>
         </div>
       </div>
       <canvas id="lineChart"></canvas>
+      <div id="lineEmpty" class="empty-state" style="display:none">
+        <div class="empty-icon">📉</div>
+        <h3>Sin datos aún</h3>
+        <p>El bot aún no ha ejecutado su primera cotización.</p>
+      </div>
     </div>
     <div class="chart-card">
-      <div class="section-title" style="margin-bottom:12px; font-size:14px;">Distribución por Plan (hoy)</div>
+      <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:12px">Distribución por Plan (hoy)</div>
       <canvas id="donutChart"></canvas>
+      <div id="donutEmpty" class="empty-state" style="display:none">
+        <div class="empty-icon">🎯</div>
+        <h3>Sin datos</h3>
+      </div>
     </div>
   </div>
 
-  <!-- BAR CHART -->
-  <div class="chart-card" style="margin-bottom:32px;">
-    <div class="section-title" style="margin-bottom:12px; font-size:14px;">Comparativa por Duración — Último Registro</div>
-    <canvas id="barChart" style="max-height:240px;"></canvas>
+  <div class="chart-card" style="margin-bottom:32px">
+    <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:12px">Comparativa por Duración — Último Registro</div>
+    <canvas id="barChart" style="max-height:240px"></canvas>
+    <div id="barEmpty" class="empty-state" style="display:none">
+      <div class="empty-icon">📊</div>
+      <h3>Sin datos</h3>
+    </div>
   </div>
 
-  <!-- DATA TABLE -->
   <div class="section-title">🗂️ Historial de Cotizaciones <span class="badge" id="rowCount">0</span></div>
   <div class="table-card">
-    <table id="dataTable">
+    <div id="tableEmpty" class="empty-state">
+      <div class="empty-icon">🤖</div>
+      <h3>El bot aún no ha corrido</h3>
+      <p>Cuando el bot ejecute su primera cotización automática, los datos aparecerán aquí. El dashboard se actualiza en tiempo real desde el Google Sheet.</p>
+      <div>
+        <span class="step">✓ Bot configurado</span>
+        <span class="step">✓ Dashboard activo</span>
+        <span class="step">⏳ Esperando primera ejecución</span>
+      </div>
+    </div>
+    <table id="dataTable" style="display:none">
       <thead>
         <tr>
-          <th>Fecha</th>
-          <th>Hora</th>
-          <th>Duración</th>
-          <th>Plan</th>
-          <th>Precio COP</th>
-          <th>Descuento</th>
-          <th>Precio Original</th>
-          <th>Cambio vs Ayer</th>
-          <th>Status</th>
+          <th>Fecha</th><th>Hora</th><th>Duración</th><th>Plan</th>
+          <th>Precio COP</th><th>Descuento</th><th>Precio Original</th>
+          <th>Cambio vs Ayer</th><th>Status</th>
         </tr>
       </thead>
-      <tbody id="tableBody">
-        <tr><td colspan="9" class="loading"><div class="spinner"></div>Cargando historial...</td></tr>
-      </tbody>
+      <tbody id="tableBody"></tbody>
     </table>
   </div>
-
 </main>
 
 <footer>
-  <p>SPV Intelligence Bot — <a href="https://github.com/segurosfly/seguroparaviaje-bot" target="_blank">GitHub Repository</a> · Datos actualizados automáticamente cada día a las 7:00 AM (COT) · Origen: Colombia → Europa</p>
+  <p>SPV Intelligence Bot — <a href="https://github.com/segurosfly/seguroparaviaje-bot" target="_blank">GitHub Repository</a> · Datos actualizados automáticamente cada día a las 7:00 AM (COT) · Colombia → Europa</p>
 </footer>
 
 <script>
-  // =====================================================
-  // CONFIG
-  // =====================================================
   const SHEET_ID = '1-jBJ7c1cIHcwIplAHU1fH0ETZRm0GEdy7jvGewF5cKU';
   const SHEET_NAME = 'Hoja 1';
-  const API_URL = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?tqx=out:json&sheet=' + encodeURIComponent(SHEET_NAME);
+  let allData = [], lineChart = null, donutChart = null, barChart = null, currentDuration = 10;
 
-  let allData = [];
-  let lineChartInstance = null;
-  let donutChartInstance = null;
-  let barChartInstance = null;
-  let currentDuration = 10;
-
-  const PLAN_COLORS = {
-    'Esencial':  { line: '#00d4aa', bg: 'rgba(0,212,170,0.15)' },
-    'Estándar':  { line: '#6c63ff', bg: 'rgba(108,99,255,0.15)' },
-    'Estandar':  { line: '#6c63ff', bg: 'rgba(108,99,255,0.15)' },
-    'Ideal':     { line: '#ffd166', bg: 'rgba(255,209,102,0.15)' },
-    'default':   { line: '#ff6b6b', bg: 'rgba(255,107,107,0.15)' }
+  const COLORS = {
+    'Esencial':  '#00d4aa', 'Esencial_bg': 'rgba(0,212,170,0.2)',
+    'Estándar': '#6c63ff', 'Estándar_bg': 'rgba(108,99,255,0.2)',
+    'Estandar':  '#6c63ff', 'Estandar_bg': 'rgba(108,99,255,0.2)',
+    'Ideal':     '#ffd166', 'Ideal_bg': 'rgba(255,209,102,0.2)',
   };
 
-  // =====================================================
-  // FETCH DATA
-  // =====================================================
   async function loadData() {
     document.getElementById('lastUpdated').textContent = 'Actualizando...';
     try {
-      const res = await fetch(API_URL + '&t=' + Date.now());
+      const url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?tqx=out:json&sheet=' + encodeURIComponent(SHEET_NAME) + '&t=' + Date.now();
+      const res = await fetch(url);
       const text = await res.text();
-      const json = JSON.parse(text.replace(/^.*?\(/, '').replace(/\);?$/, ''));
-      const rows = json.table.rows;
-      const cols = json.table.cols.map(c => c.label.toLowerCase().trim());
 
-      allData = rows.map(row => {
+      // Google returns: /*O_o*/
+google.visualization.Query.setResponse({...});
+      // We need to extract the JSON object inside setResponse(...)
+      const match = text.match(/google.visualization.Query.setResponse(([sS]*))/);
+      if (!match) throw new Error('Formato de respuesta inesperado');
+
+      const json = JSON.parse(match[1]);
+      const table = json.table;
+
+      if (!table || !table.rows || table.rows.length === 0) {
+        showEmpty();
+        document.getElementById('lastUpdated').textContent = 'Sheet vacío — esperando bot';
+        document.getElementById('statusDot').className = 'status-dot';
+        return;
+      }
+
+      const cols = table.cols.map(c => c.label.toLowerCase().trim());
+      allData = table.rows.map(row => {
         const obj = {};
         cols.forEach((col, i) => {
           const cell = row.c && row.c[i];
@@ -307,114 +211,58 @@
         return obj;
       }).filter(r => r.fecha && r.plan);
 
-      if (allData.length === 0) {
-        showEmpty();
-        return;
-      }
+      if (allData.length === 0) { showEmpty(); return; }
 
       renderKPIs();
-      renderAlerts();
       renderLineChart(currentDuration);
       renderDonutChart();
       renderBarChart();
       renderTable();
-
       document.getElementById('lastUpdated').textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es-CO');
-      document.getElementById('statusDot').style.background = '#06d6a0';
+      document.getElementById('statusDot').className = 'status-dot';
     } catch(e) {
-      document.getElementById('lastUpdated').textContent = 'Error al cargar datos';
-      document.getElementById('statusDot').style.background = '#ef476f';
-      showError(e.message);
+      console.error(e);
+      showEmpty();
+      document.getElementById('lastUpdated').textContent = 'Sin datos — esperando primera ejecución';
+      document.getElementById('statusDot').className = 'status-dot';
     }
   }
 
   function showEmpty() {
-    document.getElementById('kpiGrid').innerHTML = '<p class="loading">📭 No hay datos aún. El bot aún no ha ejecutado su primera cotización.</p>';
-    document.getElementById('tableBody').innerHTML = '<tr><td colspan="9" class="loading">Sin datos disponibles</td></tr>';
-    document.getElementById('lastUpdated').textContent = 'Sin datos';
+    document.getElementById('kpiGrid').innerHTML = kpiCard('blue','💰','Precio Mínimo','—','Sin datos aún','','💛') +
+      kpiCard('green','📊','Precio Promedio','—','Esperando bot','','📈') +
+      kpiCard('yellow','⭐','Precio Máximo','—','Esperando bot','','🏆') +
+      kpiCard('red','📅','Días Monitoreados','0','Primera ejecución pendiente','','📆');
+    document.getElementById('lineEmpty').style.display = 'block';
+    document.getElementById('lineChart').style.display = 'none';
+    document.getElementById('donutEmpty').style.display = 'block';
+    document.getElementById('donutChart').style.display = 'none';
+    document.getElementById('barEmpty').style.display = 'block';
+    document.getElementById('barChart').style.display = 'none';
+    document.getElementById('tableEmpty').style.display = 'block';
+    document.getElementById('dataTable').style.display = 'none';
+    document.getElementById('rowCount').textContent = '0';
   }
 
-  function showError(msg) {
-    document.getElementById('kpiGrid').innerHTML = '<p class="loading" style="color:#ef476f">⚠️ Error: ' + msg + '</p>';
+  function kpiCard(color, icon, label, value, sub, change, bgIcon) {
+    return '<div class="kpi-card '+color+'"><div class="kpi-label">'+label+'</div><div class="kpi-value">'+value+'</div><div class="kpi-sub">'+sub+'</div><div class="kpi-icon">'+bgIcon+'</div></div>';
   }
 
-  // =====================================================
-  // KPI CARDS
-  // =====================================================
   function renderKPIs() {
     const today = allData.reduce((max, r) => r.fecha > max ? r.fecha : max, '');
     const todayRows = allData.filter(r => r.fecha === today);
     const prices = todayRows.map(r => parsePrice(r.precio_cop)).filter(p => p > 0);
-
-    const minPrice = prices.length ? Math.min(...prices) : 0;
-    const maxPrice = prices.length ? Math.max(...prices) : 0;
-    const avgPrice = prices.length ? Math.round(prices.reduce((a,b)=>a+b,0)/prices.length) : 0;
-    const totalRows = allData.length;
-    const uniqueDays = [...new Set(allData.map(r => r.fecha))].length;
-
-    const changes = allData.filter(r => r.cambio_vs_ayer && r.cambio_vs_ayer.toString().trim() !== '' && r.cambio_vs_ayer.toString().trim() !== '0' && r.cambio_vs_ayer.toString().toLowerCase() !== 'sin cambio').length;
-
-    document.getElementById('kpiGrid').innerHTML = kpiCard('blue','💰','Precio Mínimo Hoy', formatCOP(minPrice), 'COP', '', '🛡️') +
-      kpiCard('green','📊','Precio Promedio Hoy', formatCOP(avgPrice), 'Todos los planes/duraciones', '', '📈') +
-      kpiCard('yellow','⭐','Precio Máximo Hoy', formatCOP(maxPrice), 'COP', '', '🏆') +
-      kpiCard('red','📅','Días Monitoreados', uniqueDays, 'Días con datos', changes + ' cambios detectados', '📆');
+    const minP = prices.length ? Math.min(...prices) : 0;
+    const maxP = prices.length ? Math.max(...prices) : 0;
+    const avgP = prices.length ? Math.round(prices.reduce((a,b)=>a+b,0)/prices.length) : 0;
+    const days = [...new Set(allData.map(r => r.fecha))].length;
+    document.getElementById('kpiGrid').innerHTML =
+      kpiCard('blue','💰','Precio Mínimo Hoy', formatCOP(minP), 'COP', '', '💛') +
+      kpiCard('green','📊','Precio Promedio Hoy', formatCOP(avgP), 'Todos los planes', '', '📈') +
+      kpiCard('yellow','⭐','Precio Máximo Hoy', formatCOP(maxP), 'COP', '', '🏆') +
+      kpiCard('red','📅','Días Monitoreados', days, 'Días con datos', '', '📆');
   }
 
-  function kpiCard(color, icon, label, value, sub, change, bgIcon) {
-    const changeHTML = change ? '<div class="kpi-change neutral">' + change + '</div>' : '';
-    return '<div class="kpi-card ' + color + '">' +
-      '<div class="kpi-label">' + label + '</div>' +
-      '<div class="kpi-value">' + value + '</div>' +
-      '<div class="kpi-sub">' + sub + '</div>' +
-      changeHTML +
-      '<div class="kpi-icon">' + bgIcon + '</div>' +
-      '</div>';
-  }
-
-  // =====================================================
-  // ALERTS
-  // =====================================================
-  function renderAlerts() {
-    const grid = document.getElementById('alertGrid');
-    const alerts = [];
-    const today = allData.reduce((max, r) => r.fecha > max ? r.fecha : max, '');
-    const todayRows = allData.filter(r => r.fecha === today);
-    const priceChanges = todayRows.filter(r => {
-      const c = parseFloat(String(r.cambio_vs_ayer).replace(/[^\d.-]/g,''));
-      return !isNaN(c) && Math.abs(c) > 0;
-    });
-
-    if (priceChanges.length > 0) {
-      const maxChange = priceChanges.reduce((max, r) => {
-        const v = Math.abs(parseFloat(String(r.cambio_vs_ayer).replace(/[^\d.-]/g,'')));
-        return v > max.val ? { val: v, r } : max;
-      }, { val: 0, r: null });
-      if (maxChange.r) {
-        const val = parseFloat(String(maxChange.r.cambio_vs_ayer).replace(/[^\d.-]/g,''));
-        const type = val > 0 ? 'danger' : 'info';
-        const emoji = val > 0 ? '📈' : '📉';
-        alerts.push({ type, icon: emoji, title: val > 0 ? 'Precio subió hoy' : 'Precio bajó hoy', body: 'Plan ' + maxChange.r.plan + ' (' + maxChange.r.duracion_dias + ' días): ' + (val > 0 ? '+' : '') + formatCOP(val) + ' COP vs ayer' });
-      }
-    }
-
-    const errRows = todayRows.filter(r => String(r.status).toLowerCase().includes('error'));
-    if (errRows.length > 0) {
-      alerts.push({ type: 'warn', icon: '⚠️', title: 'Errores de scraping hoy', body: errRows.length + ' registros con status de error. Revisar logs en GitHub Actions.' });
-    }
-
-    if (alerts.length === 0) {
-      alerts.push({ type: 'info', icon: '✅', title: 'Todo normal', body: 'No se detectaron cambios significativos de precio en las últimas 24 horas.' });
-    }
-
-    grid.style.display = 'grid';
-    grid.innerHTML = alerts.map(a =>
-      '<div class="alert-card ' + a.type + '"><div class="alert-icon">' + a.icon + '</div><div><div class="alert-title">' + a.title + '</div><div class="alert-body">' + a.body + '</div></div></div>'
-    ).join('');
-  }
-
-  // =====================================================
-  // LINE CHART
-  // =====================================================
   function switchDuration(dur, btn) {
     currentDuration = dur;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -424,157 +272,68 @@
 
   function renderLineChart(duration) {
     const filtered = allData.filter(r => parseInt(r.duracion_dias) === duration);
+    if (!filtered.length) { document.getElementById('lineEmpty').style.display='block'; document.getElementById('lineChart').style.display='none'; return; }
+    document.getElementById('lineEmpty').style.display='none'; document.getElementById('lineChart').style.display='block';
     const plans = [...new Set(filtered.map(r => r.plan))];
     const dates = [...new Set(filtered.map(r => r.fecha))].sort();
-
-    const datasets = plans.map(plan => {
-      const c = PLAN_COLORS[plan] || PLAN_COLORS['default'];
-      return {
-        label: plan,
-        data: dates.map(d => {
-          const row = filtered.find(r => r.fecha === d && r.plan === plan);
-          return row ? parsePrice(row.precio_cop) : null;
-        }),
-        borderColor: c.line,
-        backgroundColor: c.bg,
-        tension: 0.4, fill: false,
-        pointRadius: 5, pointHoverRadius: 8,
-        spanGaps: true
-      };
-    });
-
+    const datasets = plans.map(plan => ({
+      label: plan,
+      data: dates.map(d => { const row = filtered.find(r => r.fecha===d && r.plan===plan); return row ? parsePrice(row.precio_cop) : null; }),
+      borderColor: COLORS[plan] || '#ff6b6b', backgroundColor: COLORS[plan+'_bg'] || 'rgba(255,107,107,0.2)',
+      tension: 0.4, fill: false, pointRadius: 5, spanGaps: true
+    }));
     const ctx = document.getElementById('lineChart').getContext('2d');
-    if (lineChartInstance) lineChartInstance.destroy();
-    lineChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: { labels: dates, datasets },
-      options: {
-        responsive: true, maintainAspectRatio: true,
-        plugins: {
-          legend: { labels: { color: '#e0e0e0', font: { size: 12 } } },
-          tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + formatCOP(ctx.raw) + ' COP' } }
-        },
-        scales: {
-          x: { ticks: { color: '#8b8fa8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-          y: { ticks: { color: '#8b8fa8', callback: v => '$' + (v/1000).toFixed(0) + 'k' }, grid: { color: 'rgba(255,255,255,0.05)' } }
-        }
-      }
-    });
+    if (lineChart) lineChart.destroy();
+    lineChart = new Chart(ctx, { type:'line', data:{labels:dates,datasets}, options: chartOpts('line') });
   }
 
-  // =====================================================
-  // DONUT CHART
-  // =====================================================
   function renderDonutChart() {
-    const today = allData.reduce((max, r) => r.fecha > max ? r.fecha : max, '');
-    const todayRows = allData.filter(r => r.fecha === today);
-    const plans = [...new Set(todayRows.map(r => r.plan))];
-    const totals = plans.map(p => todayRows.filter(r => r.plan === p).reduce((s, r) => s + parsePrice(r.precio_cop), 0));
-    const colors = plans.map(p => (PLAN_COLORS[p] || PLAN_COLORS['default']).line);
-
+    const today = allData.reduce((max,r) => r.fecha > max ? r.fecha : max, '');
+    const rows = allData.filter(r => r.fecha === today);
+    if (!rows.length) { document.getElementById('donutEmpty').style.display='block'; document.getElementById('donutChart').style.display='none'; return; }
+    document.getElementById('donutEmpty').style.display='none'; document.getElementById('donutChart').style.display='block';
+    const plans = [...new Set(rows.map(r => r.plan))];
     const ctx = document.getElementById('donutChart').getContext('2d');
-    if (donutChartInstance) donutChartInstance.destroy();
-    donutChartInstance = new Chart(ctx, {
-      type: 'doughnut',
-      data: { labels: plans, datasets: [{ data: totals, backgroundColor: colors, borderColor: '#1a1d27', borderWidth: 3 }] },
-      options: {
-        responsive: true, maintainAspectRatio: true,
-        plugins: {
-          legend: { labels: { color: '#e0e0e0', font: { size: 12 } } },
-          tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + formatCOP(ctx.raw) + ' COP (total)' } }
-        },
-        cutout: '65%'
-      }
-    });
+    if (donutChart) donutChart.destroy();
+    donutChart = new Chart(ctx, { type:'doughnut', data:{labels:plans, datasets:[{data:plans.map(p=>rows.filter(r=>r.plan===p).reduce((s,r)=>s+parsePrice(r.precio_cop),0)), backgroundColor:plans.map(p=>COLORS[p]||'#ff6b6b'), borderColor:'#1a1d27', borderWidth:3}]}, options:{responsive:true,plugins:{legend:{labels:{color:'#e0e0e0'}},tooltip:{callbacks:{label:ctx=>' '+ctx.label+': '+formatCOP(ctx.raw)+' COP'}}},cutout:'65%'} });
   }
 
-  // =====================================================
-  // BAR CHART
-  // =====================================================
   function renderBarChart() {
-    const today = allData.reduce((max, r) => r.fecha > max ? r.fecha : max, '');
-    const todayRows = allData.filter(r => r.fecha === today);
-    const durations = [10, 20, 30];
-    const plans = [...new Set(todayRows.map(r => r.plan))];
-
-    const datasets = plans.map(plan => {
-      const c = PLAN_COLORS[plan] || PLAN_COLORS['default'];
-      return {
-        label: plan,
-        data: durations.map(d => {
-          const row = todayRows.find(r => parseInt(r.duracion_dias) === d && r.plan === plan);
-          return row ? parsePrice(row.precio_cop) : 0;
-        }),
-        backgroundColor: c.line,
-        borderRadius: 6
-      };
-    });
-
+    const today = allData.reduce((max,r) => r.fecha > max ? r.fecha : max, '');
+    const rows = allData.filter(r => r.fecha === today);
+    if (!rows.length) { document.getElementById('barEmpty').style.display='block'; document.getElementById('barChart').style.display='none'; return; }
+    document.getElementById('barEmpty').style.display='none'; document.getElementById('barChart').style.display='block';
+    const plans = [...new Set(rows.map(r => r.plan))];
+    const durations = [10,20,30];
     const ctx = document.getElementById('barChart').getContext('2d');
-    if (barChartInstance) barChartInstance.destroy();
-    barChartInstance = new Chart(ctx, {
-      type: 'bar',
-      data: { labels: durations.map(d => d + ' días'), datasets },
-      options: {
-        responsive: true, maintainAspectRatio: true,
-        plugins: { legend: { labels: { color: '#e0e0e0' } }, tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + formatCOP(ctx.raw) + ' COP' } } },
-        scales: {
-          x: { ticks: { color: '#8b8fa8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-          y: { ticks: { color: '#8b8fa8', callback: v => '$' + (v/1000).toFixed(0) + 'k' }, grid: { color: 'rgba(255,255,255,0.05)' } }
-        }
-      }
-    });
+    if (barChart) barChart.destroy();
+    barChart = new Chart(ctx, { type:'bar', data:{labels:durations.map(d=>d+' días'), datasets:plans.map(plan=>({label:plan,data:durations.map(d=>{const r=rows.find(x=>parseInt(x.duracion_dias)===d&&x.plan===plan);return r?parsePrice(r.precio_cop):0;}),backgroundColor:COLORS[plan]||'#ff6b6b',borderRadius:6}))}, options:chartOpts('bar') });
   }
 
-  // =====================================================
-  // TABLE
-  // =====================================================
   function renderTable() {
     const sorted = [...allData].reverse();
     document.getElementById('rowCount').textContent = sorted.length;
+    document.getElementById('tableEmpty').style.display = 'none';
+    document.getElementById('dataTable').style.display = 'table';
     document.getElementById('tableBody').innerHTML = sorted.map(r => {
-      const planClass = r.plan.toLowerCase().includes('esencial') ? 'plan-esencial' : r.plan.toLowerCase().includes('ndar') ? 'plan-estandar' : 'plan-ideal';
-      const change = parseFloat(String(r.cambio_vs_ayer).replace(/[^\d.-]/g,''));
-      const changeHTML = isNaN(change) || change === 0
-        ? '<span class="change-neutral">—</span>'
-        : change > 0
-          ? '<span class="change-up">▲ +' + formatCOP(change) + '</span>'
-          : '<span class="change-down">▼ ' + formatCOP(change) + '</span>';
-      const statusHTML = String(r.status).toLowerCase().includes('error')
-        ? '<span class="status-err">⚠ Error</span>'
-        : '<span class="status-ok">✓ OK</span>';
-      return '<tr>' +
-        '<td>' + r.fecha + '</td>' +
-        '<td>' + r.hora + '</td>' +
-        '<td style="text-align:center"><strong>' + r.duracion_dias + 'd</strong></td>' +
-        '<td><span class="plan-badge ' + planClass + '">' + r.plan + '</span></td>' +
-        '<td><strong>' + formatCOP(parsePrice(r.precio_cop)) + '</strong> COP</td>' +
-        '<td style="color:#ffd166">' + (r.descuento || '—') + '</td>' +
-        '<td style="color:#8b8fa8">' + (r.precio_original ? formatCOP(parsePrice(r.precio_original)) : '—') + '</td>' +
-        '<td>' + changeHTML + '</td>' +
-        '<td>' + statusHTML + '</td>' +
-        '</tr>';
+      const pc = r.plan.toLowerCase();
+      const planCls = pc.includes('esencial')?'plan-esencial':pc.includes('ndar')?'plan-estandar':'plan-ideal';
+      const chg = parseFloat(String(r.cambio_vs_ayer).replace(/[^\d.-]/g,''));
+      const chgHTML = isNaN(chg)||chg===0?'<span class="change-neutral">—</span>':chg>0?'<span class="change-up">▲ +'+formatCOP(chg)+'</span>':'<span class="change-down">▼ '+formatCOP(chg)+'</span>';
+      const stHTML = String(r.status).toLowerCase().includes('error')?'<span class="status-err">⚠ Error</span>':'<span class="status-ok">✓ OK</span>';
+      return '<tr><td>'+r.fecha+'</td><td>'+r.hora+'</td><td style="text-align:center"><strong>'+r.duracion_dias+'d</strong></td><td><span class="plan-badge '+planCls+'">'+r.plan+'</span></td><td><strong>'+formatCOP(parsePrice(r.precio_cop))+'</strong> COP</td><td style="color:#ffd166">'+(r.descuento||'—')+'</td><td style="color:#8b8fa8">'+(r.precio_original?formatCOP(parsePrice(r.precio_original)):'—')+'</td><td>'+chgHTML+'</td><td>'+stHTML+'</td></tr>';
     }).join('');
   }
 
-  // =====================================================
-  // HELPERS
-  // =====================================================
-  function parsePrice(val) {
-    if (!val) return 0;
-    return parseInt(String(val).replace(/[^\d]/g, '')) || 0;
+  function chartOpts(type) {
+    return { responsive:true, maintainAspectRatio:true, plugins:{legend:{labels:{color:'#e0e0e0',font:{size:12}}},tooltip:{callbacks:{label:ctx=>' '+ctx.dataset.label+': '+formatCOP(ctx.raw)+' COP'}}}, scales:{x:{ticks:{color:'#8b8fa8'},grid:{color:'rgba(255,255,255,0.05)'}},y:{ticks:{color:'#8b8fa8',callback:v=>'$'+(v/1000).toFixed(0)+'k'},grid:{color:'rgba(255,255,255,0.05)'}}} };
   }
 
-  function formatCOP(n) {
-    if (!n) return '0';
-    return '$' + Math.round(n).toLocaleString('es-CO');
-  }
+  function parsePrice(val) { return parseInt(String(val||'').replace(/[^\d]/g,''))||0; }
+  function formatCOP(n) { return n ? '$'+Math.round(n).toLocaleString('es-CO') : '—'; }
 
-  // =====================================================
-  // INIT
-  // =====================================================
   loadData();
-  setInterval(loadData, 5 * 60 * 1000); // auto-refresh cada 5 min
+  setInterval(loadData, 5*60*1000);
 </script>
 </body>
-          </html>
+</html>
