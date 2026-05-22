@@ -1,201 +1,158 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SPV Intelligence Bot</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-:root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3e;--accent:#6c63ff;--a2:#00d4aa;--a3:#ff6b6b;--a4:#ffd166;--text:#e0e0e0;--muted:#8b8fa8;--green:#06d6a0;--red:#ef476f}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;min-height:100vh}
-header{background:linear-gradient(135deg,#1a1d27,#0f1117);border-bottom:1px solid var(--border);padding:20px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
-.logo{display:flex;align-items:center;gap:12px}
-.logo-icon{width:40px;height:40px;background:var(--accent);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px}
-.logo h1{font-size:20px;font-weight:700;color:#fff}
-.logo span{font-size:12px;color:var(--muted)}
-.hdr-right{display:flex;align-items:center;gap:16px}
-.lbl{font-size:12px;color:var(--muted)}
-.btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer}
-.dot{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green)}
-main{max-width:1400px;margin:0 auto;padding:32px}
-.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:32px}
-.kpi{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;position:relative;overflow:hidden}
-.kpi::before{content:"";position:absolute;top:0;left:0;right:0;height:3px}
-.kpi.b::before{background:var(--accent)}.kpi.g::before{background:var(--a2)}.kpi.y::before{background:var(--a4)}.kpi.r::before{background:var(--a3)}
-.kpi-lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
-.kpi-val{font-size:28px;font-weight:800;color:#fff;margin-bottom:4px}
-.kpi-sub{font-size:12px;color:var(--muted)}
-.kpi-ico{position:absolute;right:20px;top:50%;transform:translateY(-50%);font-size:36px;opacity:.15}
-.sec{font-size:16px;font-weight:700;color:#fff;margin-bottom:16px}
-.cgrid{display:grid;grid-template-columns:2fr 1fr;gap:20px;margin-bottom:32px}
-@media(max-width:900px){.cgrid{grid-template-columns:1fr}}
-.ccard{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px}
-.ccard canvas{max-height:280px}
-.tabs{display:flex;gap:8px;margin-bottom:16px}
-.tab{background:var(--border);border:none;color:var(--muted);padding:6px 16px;border-radius:8px;font-size:13px;cursor:pointer;transition:all .2s}
-.tab.on{background:var(--accent);color:#fff;font-weight:600}
-.tbl-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:32px;overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:14px}
-thead tr{border-bottom:1px solid var(--border)}
-th{text-align:left;padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600}
-td{padding:12px;border-bottom:1px solid rgba(255,255,255,.04)}
-tr:last-child td{border-bottom:none}
-tr:hover td{background:rgba(108,99,255,.05)}
-.pe{background:rgba(0,212,170,.15);color:var(--a2);display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase}
-.ps{background:rgba(108,99,255,.15);color:var(--accent);display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase}
-.pi{background:rgba(255,209,102,.15);color:var(--a4);display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase}
-.up{color:var(--red);font-weight:600}.dn{color:var(--green);font-weight:600}.mt{color:var(--muted)}
-.ok{color:var(--green)}.er{color:var(--red)}
-.empty{text-align:center;padding:60px 20px}
-.empty .ei{font-size:64px;margin-bottom:16px;opacity:.4}
-.empty h3{font-size:18px;font-weight:700;color:#fff;margin-bottom:8px}
-.empty p{font-size:14px;color:var(--muted);max-width:400px;margin:0 auto 16px;line-height:1.6}
-.step{display:inline-block;background:rgba(108,99,255,.1);border:1px solid rgba(108,99,255,.3);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--accent);margin:4px}
-.spin{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;margin:0 auto 16px}
-@keyframes sp{to{transform:rotate(360deg)}}
-footer{text-align:center;padding:24px;color:var(--muted);font-size:12px;border-top:1px solid var(--border)}
-footer a{color:var(--accent);text-decoration:none}
-</style></head>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; min-height: 100vh; }
+header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+header h1 { font-size: 1.2rem; font-weight: 600; }
+header span { background: #238636; color: #fff; font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
+.kpi { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
+.kpi .label { font-size: 0.75rem; color: #7d8590; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+.kpi .value { font-size: 1.6rem; font-weight: 700; color: #58a6ff; }
+.kpi .sub { font-size: 0.75rem; color: #7d8590; margin-top: 4px; }
+.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 28px; }
+.chart-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
+.chart-box h3 { font-size: 0.85rem; color: #7d8590; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.05em; }
+@media (max-width: 768px) { .charts { grid-template-columns: 1fr; } }
+.table-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
+.table-box h3 { font-size: 0.85rem; color: #7d8590; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.05em; }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+thead th { background: #0d1117; color: #7d8590; text-align: left; padding: 8px 12px; border-bottom: 1px solid #30363d; }
+tbody tr { border-bottom: 1px solid #21262d; }
+tbody tr:hover { background: #1c2128; }
+tbody td { padding: 10px 12px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; }
+.badge-e { background: #1f2937; color: #93c5fd; }
+.badge-s { background: #1a2e1a; color: #86efac; }
+.badge-i { background: #2d1a2e; color: #c4b5fd; }
+.empty-state { text-align: center; padding: 60px 20px; color: #7d8590; }
+.empty-state .icon { font-size: 3rem; margin-bottom: 16px; }
+.empty-state h2 { font-size: 1.1rem; color: #e6edf3; margin-bottom: 8px; }
+.empty-state p { font-size: 0.85rem; }
+.status-bar { background: #161b22; border-bottom: 1px solid #30363d; padding: 8px 24px; font-size: 0.75rem; color: #7d8590; display: flex; gap: 20px; align-items: center; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.dot-ok { background: #3fb950; }
+.dot-warn { background: #d29922; }
+</style>
+</head>
 <body>
 <header>
-<div class="logo"><div class="logo-icon">&#9992;</div><div><h1>SPV Intelligence Bot</h1><span>seguroparaviaje.com.co &mdash; Monitoreo Competitivo</span></div></div>
-<div class="hdr-right"><div class="dot" id="dot"></div><span class="lbl" id="lbl">Cargando...</span><button class="btn" onclick="load()">&#8635; Actualizar</button></div>
+  <div>
+    <h1>SPV Intelligence Bot <span>LIVE</span></h1>
+  </div>
 </header>
-<main>
-<div class="kpi-grid" id="kpi"><div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><div class="spin"></div>Cargando datos...</div></div>
-<div class="sec">&#128200; Evolucion de Precios</div>
-<div class="cgrid">
-<div class="ccard">
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><span style="font-size:14px;font-weight:700;color:#fff">Historico por Plan</span>
-<div class="tabs"><button class="tab on" onclick="sw(10,this)">10 dias</button><button class="tab" onclick="sw(20,this)">20 dias</button><button class="tab" onclick="sw(30,this)">30 dias</button></div></div>
-<canvas id="lc"></canvas>
-<div id="le" class="empty" style="display:none"><div class="ei">&#128200;</div><h3>Sin datos aun</h3><p>El bot aun no ha ejecutado cotizaciones.</p></div>
+<div class="status-bar" id="statusBar">
+  <span id="statusDot"><span class="dot dot-warn"></span></span>
+  <span id="statusText">Cargando datos...</span>
 </div>
-<div class="ccard">
-<div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:12px">Distribucion por Plan (hoy)</div>
-<canvas id="dc"></canvas>
-<div id="de" class="empty" style="display:none"><div class="ei">&#127919;</div><h3>Sin datos</h3></div>
-</div></div>
-<div class="ccard" style="margin-bottom:32px">
-<div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:12px">Comparativa por Duracion &mdash; Ultimo Registro</div>
-<canvas id="bc" style="max-height:240px"></canvas>
-<div id="be" class="empty" style="display:none"><div class="ei">&#128202;</div><h3>Sin datos</h3></div>
+<div class="container">
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">Registros Totales</div><div class="value" id="kpiTotal">&#8212;</div><div class="sub">cotizaciones guardadas</div></div>
+    <div class="kpi"><div class="label">Última Actualizacion</div><div class="value" id="kpiDate" style="font-size:1.1rem">&#8212;</div><div class="sub">fecha mas reciente</div></div>
+    <div class="kpi"><div class="label">Plan Esencial (30d)</div><div class="value" id="kpiEsencial">&#8212;</div><div class="sub">ultimo precio COP</div></div>
+    <div class="kpi"><div class="label">Plan Ideal (30d)</div><div class="value" id="kpiIdeal">&#8212;</div><div class="sub">ultimo precio COP</div></div>
+  </div>
+  <div class="charts">
+    <div class="chart-box"><h3>Precios 30 dias - Evolucion</h3><canvas id="chart30"></canvas></div>
+    <div class="chart-box"><h3>Comparacion por duracion</h3><canvas id="chartDur"></canvas></div>
+  </div>
+  <div class="table-box">
+    <h3>Historial de Cotizaciones</h3>
+    <div id="tableContent"></div>
+  </div>
 </div>
-<div class="sec">&#128194; Historial <span style="background:var(--accent);color:#fff;font-size:10px;padding:2px 8px;border-radius:20px" id="cnt">0</span></div>
-<div class="tbl-card">
-<div id="te" class="empty"><div class="ei">&#129302;</div><h3>El bot aun no ha corrido</h3><p>Cuando ejecute su primera cotizacion automatica, los datos apareceran aqui.</p><div><span class="step">&#10003; Bot configurado</span><span class="step">&#10003; Dashboard activo</span><span class="step">&#8987; Esperando primera ejecucion</span></div></div>
-<table id="dt" style="display:none"><thead><tr><th>Fecha</th><th>Hora</th><th>Duracion</th><th>Plan</th><th>Precio COP</th><th>Descuento</th><th>P.Original</th><th>Cambio</th><th>Status</th></tr></thead><tbody id="tb"></tbody></table>
-</div></main>
-<footer><p>SPV Intelligence Bot &mdash; <a href="https://github.com/segurosfly/seguroparaviaje-bot" target="_blank">GitHub</a> &middot; Colombia &rarr; Europa &middot; Actualiza cada 7:00 AM</p></footer>
 <script>
-var SHEET="1-jBJ7c1cIHcwIplAHU1fH0ETZRm0GEdy7jvGewF5cKU",SH="Hoja 1",all=[],lc=null,dc=null,bc=null,cur=10;
-var C={"Esencial":"#00d4aa","Estandar":"#6c63ff","Est\u00e1ndar":"#6c63ff","Ideal":"#ffd166"};
-var CB={"Esencial":"rgba(0,212,170,.2)","Estandar":"rgba(108,99,255,.2)","Est\u00e1ndar":"rgba(108,99,255,.2)","Ideal":"rgba(255,209,102,.2)"};
-function load(){
-  document.getElementById("lbl").textContent="Actualizando...";
-  var url="https://docs.google.com/spreadsheets/d/"+SHEET+"/gviz/tq?tqx=out:json&sheet="+encodeURIComponent(SH)+"&t="+Date.now();
-  fetch(url).then(function(r){return r.text();}).then(function(t){
-    var m=t.match(/setResponse\(([\s\S]+)\)\s*;?\s*$/);
-    if(!m) throw new Error("No match");
-    var j=JSON.parse(m[1]);
-    if(!j.table||!j.table.rows||!j.table.rows.length){empty();document.getElementById("lbl").textContent="Sin datos - esperando bot";return;}
-    var cols=j.table.cols.map(function(c){return c.label.toLowerCase().trim();});
-    all=j.table.rows.map(function(row){
-      var o={};
-      cols.forEach(function(c,i){var cell=row.c&&row.c[i];o[c]=cell?(cell.f||cell.v||""):"";});
-      return o;
-    }).filter(function(r){return r.fecha&&r.plan;});
-    if(!all.length){empty();return;}
-    kpis();lineChart(cur);donut();bar();tbl();
-    document.getElementById("lbl").textContent="Actualizado: "+new Date().toLocaleTimeString("es-CO");
-    document.getElementById("dot").style.background="#06d6a0";
-  }).catch(function(e){
-    console.error(e);
-    empty();
-    document.getElementById("lbl").textContent="Sin datos - esperando primera ejecucion";
-    document.getElementById("dot").style.background="#06d6a0";
-  });
-}
-function empty(){
-  document.getElementById("kpi").innerHTML=kp("b","Precio Minimo","&mdash;","Sin datos","&#128155;")+kp("g","Precio Promedio","&mdash;","Esperando bot","&#128200;")+kp("y","Precio Maximo","&mdash;","COP","&#127942;")+kp("r","Dias Monitor.","0","Primera ejecucion pendiente","&#128198;");
-  ["le","de","be","te"].forEach(function(id){document.getElementById(id).style.display="block";});
-  ["lc","dc","bc"].forEach(function(id){document.getElementById(id).style.display="none";});
-  document.getElementById("dt").style.display="none";
-  document.getElementById("cnt").textContent="0";
-}
-function kp(cls,lbl,val,sub,ico){
-  return'<div class="kpi '+cls+'"><div class="kpi-lbl">'+lbl+'</div><div class="kpi-val">'+val+'</div><div class="kpi-sub">'+sub+'</div><div class="kpi-ico">'+ico+'</div></div>';
-}
-function kpis(){
-  var today=all.reduce(function(m,r){return r.fecha>m?r.fecha:m;},"");
-  var rows=all.filter(function(r){return r.fecha===today;});
-  var prices=rows.map(function(r){return pp(r.precio_cop);}).filter(function(p){return p>0;});
-  var mn=prices.length?Math.min.apply(null,prices):0;
-  var mx=prices.length?Math.max.apply(null,prices):0;
-  var av=prices.length?Math.round(prices.reduce(function(a,b){return a+b;},0)/prices.length):0;
-  var days=[...new Set(all.map(function(r){return r.fecha;}))].length;
-  document.getElementById("kpi").innerHTML=kp("b","Precio Minimo",fc(mn),"COP","&#128155;")+kp("g","Precio Promedio",fc(av),"Todos los planes","&#128200;")+kp("y","Precio Maximo",fc(mx),"COP","&#127942;")+kp("r","Dias Monitor.",days,"Dias con datos","&#128198;");
-}
-function sw(d,btn){
-  cur=d;
-  document.querySelectorAll(".tab").forEach(function(b){b.classList.remove("on");});
-  btn.classList.add("on");
-  lineChart(d);
-}
-function lineChart(dur){
-  var f=all.filter(function(r){return parseInt(r.duracion_dias)===dur;});
-  if(!f.length){document.getElementById("le").style.display="block";document.getElementById("lc").style.display="none";return;}
-  document.getElementById("le").style.display="none";document.getElementById("lc").style.display="block";
-  var plans=[...new Set(f.map(function(r){return r.plan;}))],dates=[...new Set(f.map(function(r){return r.fecha;}))].sort();
-  var ds=plans.map(function(p){
-    return{label:p,data:dates.map(function(d){var row=f.find(function(r){return r.fecha===d&&r.plan===p;});return row?pp(row.precio_cop):null;}),borderColor:C[p]||"#ff6b6b",backgroundColor:CB[p]||"rgba(255,107,107,.2)",tension:.4,fill:false,pointRadius:5,spanGaps:true};
-  });
-  var ctx=document.getElementById("lc").getContext("2d");
-  if(lc)lc.destroy();
-  lc=new Chart(ctx,{type:"line",data:{labels:dates,datasets:ds},options:co()});
-}
-function donut(){
-  var today=all.reduce(function(m,r){return r.fecha>m?r.fecha:m;},"");
-  var rows=all.filter(function(r){return r.fecha===today;});
-  if(!rows.length){document.getElementById("de").style.display="block";document.getElementById("dc").style.display="none";return;}
-  document.getElementById("de").style.display="none";document.getElementById("dc").style.display="block";
-  var plans=[...new Set(rows.map(function(r){return r.plan;}))];
-  var ctx=document.getElementById("dc").getContext("2d");
-  if(dc)dc.destroy();
-  dc=new Chart(ctx,{type:"doughnut",data:{labels:plans,datasets:[{data:plans.map(function(p){return rows.filter(function(r){return r.plan===p;}).reduce(function(s,r){return s+pp(r.precio_cop);},0);}),backgroundColor:plans.map(function(p){return C[p]||"#ff6b6b";}),borderColor:"#1a1d27",borderWidth:3}]},options:{responsive:true,plugins:{legend:{labels:{color:"#e0e0e0"}},tooltip:{callbacks:{label:function(c){return" "+c.label+": "+fc(c.raw)+" COP";}}}},cutout:"65%"}});
-}
-function bar(){
-  var today=all.reduce(function(m,r){return r.fecha>m?r.fecha:m;},"");
-  var rows=all.filter(function(r){return r.fecha===today;});
-  if(!rows.length){document.getElementById("be").style.display="block";document.getElementById("bc").style.display="none";return;}
-  document.getElementById("be").style.display="none";document.getElementById("bc").style.display="block";
-  var plans=[...new Set(rows.map(function(r){return r.plan;}))];
-  var ctx=document.getElementById("bc").getContext("2d");
-  if(bc)bc.destroy();
-  bc=new Chart(ctx,{type:"bar",data:{labels:["10 dias","20 dias","30 dias"],datasets:plans.map(function(p){return{label:p,data:[10,20,30].map(function(d){var r=rows.find(function(x){return parseInt(x.duracion_dias)===d&&x.plan===p;});return r?pp(r.precio_cop):0;}),backgroundColor:C[p]||"#ff6b6b",borderRadius:6};})},options:co()});
-}
-function tbl(){
-  var s=[...all].reverse();
-  document.getElementById("cnt").textContent=s.length;
-  document.getElementById("te").style.display="none";
-  document.getElementById("dt").style.display="table";
-  document.getElementById("tb").innerHTML=s.map(function(r){
-    var pc=r.plan.toLowerCase();
-    var pcls=pc.indexOf("esencial")>=0?"pe":pc.indexOf("ndar")>=0?"ps":"pi";
-    var chg=parseFloat(String(r.cambio_vs_ayer||"").replace(/[^\d.-]/g,""));
-    var ch=isNaN(chg)||chg===0?'<span class="mt">&mdash;</span>':chg>0?'<span class="up">&#9650; +'+fc(chg)+'</span>':'<span class="dn">&#9660; '+fc(chg)+'</span>';
-    var st=String(r.status||"").toLowerCase().indexOf("error")>=0?'<span class="er">&#9888; Err</span>':'<span class="ok">&#10003; OK</span>';
-    return "<tr><td>"+r.fecha+"</td><td>"+r.hora+"</td><td style='text-align:center'><b>"+r.duracion_dias+"d</b></td><td><span class='"+pcls+"'>"+r.plan+"</span></td><td><b>"+fc(pp(r.precio_cop))+"</b> COP</td><td style='color:#ffd166'>"+(r.descuento||"&mdash;")+"</td><td style='color:#8b8fa8'>"+(r.precio_original?fc(pp(r.precio_original)):"&mdash;")+"</td><td>"+ch+"</td><td>"+st+"</td></tr>";
-  }).join("");
-}
-function co(){
-  return{responsive:true,maintainAspectRatio:true,plugins:{legend:{labels:{color:"#e0e0e0",font:{size:12}}},tooltip:{callbacks:{label:function(c){return" "+c.dataset.label+": "+fc(c.raw)+" COP";}}}},scales:{x:{ticks:{color:"#8b8fa8"},grid:{color:"rgba(255,255,255,.05)"}},y:{ticks:{color:"#8b8fa8",callback:function(v){return"$"+(v/1000).toFixed(0)+"k";}},grid:{color:"rgba(255,255,255,.05)"}}}};
-}
-function pp(v){return parseInt(String(v||"").replace(/[^\d]/g,""))||0;}
-function fc(n){return n?"$"+Math.round(n).toLocaleString("es-CO"):"&mdash;";}
-load();
-setInterval(load,5*60*1000);
+(function() {
+  var SHEET_ID = "1-jBJ7c1cIHcwIplAHU1fH0ETZRm0GEdy7jvGewF5cKU";
+  var url = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/gviz/tq?tqx=out:json&sheet=Sheet1";
+
+  function fmt(n) {
+    if (!n && n !== 0) return "—";
+    return "$" + Number(n).toLocaleString("es-CO");
+  }
+
+  function showEmpty() {
+    document.getElementById("statusDot").innerHTML = '<span class="dot dot-warn"></span>';
+    document.getElementById("statusText").textContent = "Sin datos aun — el bot ejecutara su primera corrida a las 7:00 AM COT";
+    document.getElementById("tableContent").innerHTML = '<div class="empty-state"><div class="icon">📊</div><h2>Sin datos todavia</h2><p>El bot ejecutara su primera corrida automatica a las 7:00 AM COT.<br>Los datos apareceran aqui automaticamente.</p></div>';
+  }
+
+  function parseGviz(text) {
+    var idx = text.indexOf("google.visualization.Query.setResponse(");
+    if (idx === -1) return null;
+    var start = idx + "google.visualization.Query.setResponse(".length;
+    var end = text.lastIndexOf(")");
+    if (end <= start) return null;
+    try {
+      return JSON.parse(text.substring(start, end));
+    } catch(e) { return null; }
+  }
+
+  function render(rows) {
+    if (!rows || rows.length === 0) { showEmpty(); return; }
+    document.getElementById("kpiTotal").textContent = rows.length;
+    var last = rows[rows.length - 1];
+    document.getElementById("kpiDate").textContent = last[0] ? last[0].toString().substring(0, 10) : "—";
+    var rows30 = rows.filter(function(r) { return Number(r[1]) === 30; });
+    if (rows30.length > 0) {
+      var last30 = rows30[rows30.length - 1];
+      document.getElementById("kpiEsencial").textContent = fmt(last30[3]);
+      document.getElementById("kpiIdeal").textContent = fmt(last30[5]);
+    }
+    var labels30 = rows30.map(function(r) { return r[0] ? r[0].toString().substring(0, 10) : ""; });
+    var esencial30 = rows30.map(function(r) { return Number(r[3]) || 0; });
+    var estandar30 = rows30.map(function(r) { return Number(r[4]) || 0; });
+    var ideal30 = rows30.map(function(r) { return Number(r[5]) || 0; });
+    var ctx30 = document.getElementById("chart30").getContext("2d");
+    new Chart(ctx30, { type: "line", data: { labels: labels30, datasets: [ { label: "Esencial", data: esencial30, borderColor: "#58a6ff", backgroundColor: "rgba(88,166,255,0.1)", tension: 0.3 }, { label: "Estandar", data: estandar30, borderColor: "#3fb950", backgroundColor: "rgba(63,185,80,0.1)", tension: 0.3 }, { label: "Ideal", data: ideal30, borderColor: "#c4b5fd", backgroundColor: "rgba(196,181,253,0.1)", tension: 0.3 } ] }, options: { responsive: true, plugins: { legend: { labels: { color: "#7d8590", font: { size: 11 } } } }, scales: { x: { ticks: { color: "#7d8590", maxRotation: 45 } }, y: { ticks: { color: "#7d8590", callback: function(v) { return "$" + (v/1000).toFixed(0) + "k"; } } } } } });
+    var durs = [10, 20, 30];
+    var esencialByDur = [], estandarByDur = [], idealByDur = [];
+    durs.forEach(function(d) {
+      var rd = rows.filter(function(r) { return Number(r[1]) === d; });
+      if (rd.length > 0) {
+        var lr = rd[rd.length - 1];
+        esencialByDur.push(Number(lr[3]) || 0);
+        estandarByDur.push(Number(lr[4]) || 0);
+        idealByDur.push(Number(lr[5]) || 0);
+      } else {
+        esencialByDur.push(0); estandarByDur.push(0); idealByDur.push(0);
+      }
+    });
+    var ctxDur = document.getElementById("chartDur").getContext("2d");
+    new Chart(ctxDur, { type: "bar", data: { labels: ["10 dias", "20 dias", "30 dias"], datasets: [ { label: "Esencial", data: esencialByDur, backgroundColor: "rgba(88,166,255,0.7)" }, { label: "Estandar", data: estandarByDur, backgroundColor: "rgba(63,185,80,0.7)" }, { label: "Ideal", data: idealByDur, backgroundColor: "rgba(196,181,253,0.7)" } ] }, options: { responsive: true, plugins: { legend: { labels: { color: "#7d8590", font: { size: 11 } } } }, scales: { x: { ticks: { color: "#7d8590" } }, y: { ticks: { color: "#7d8590", callback: function(v) { return "$" + (v/1000).toFixed(0) + "k"; } } } } } });
+    var html = "<table><thead><tr><th>Fecha</th><th>Dias</th><th>Ruta</th><th>Esencial</th><th>Estandar</th><th>Ideal</th></tr></thead><tbody>";
+    var display = rows.slice(-50).reverse();
+    display.forEach(function(r) {
+      var dur = Number(r[1]);
+      html += "<tr><td>" + (r[0] ? r[0].toString().substring(0, 16) : "—") + "</td><td>" + (dur || "—") + " d</td><td>" + (r[2] || "—") + "</td><td><span class='badge badge-e'>" + fmt(r[3]) + "</span></td><td><span class='badge badge-s'>" + fmt(r[4]) + "</span></td><td><span class='badge badge-i'>" + fmt(r[5]) + "</span></td></tr>";
+    });
+    html += "</tbody></table>";
+    document.getElementById("tableContent").innerHTML = html;
+    document.getElementById("statusDot").innerHTML = '<span class="dot dot-ok"></span>';
+    document.getElementById("statusText").textContent = "Actualizado — " + rows.length + " registros cargados";
+  }
+
+  fetch(url)
+    .then(function(r) { return r.text(); })
+    .then(function(text) {
+      var parsed = parseGviz(text);
+      if (!parsed) { showEmpty(); return; }
+      var table = parsed.table;
+      if (!table || !table.rows || table.rows.length === 0) { showEmpty(); return; }
+      var rows = table.rows.map(function(row) {
+        return row.c.map(function(cell) { return cell ? cell.v : null; });
+      });
+      render(rows);
+    })
+    .catch(function(e) { showEmpty(); });
+})();
 </script>
 </body>
 </html>
