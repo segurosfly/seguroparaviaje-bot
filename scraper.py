@@ -15,14 +15,16 @@ async def human_pause(page, lo=2000, hi=5000):
 
 
 async def set_shadow_date(page, field_id, iso_date):
-    """Set #departureDate / #arrivalDate inside SPV-QUOTE shadow DOM."""
+    """Set #departureDate / #arrivalDate inside SPV-QUOTE shadow DOM via JS."""
     ok = await page.evaluate(
         """([fid, val]) => {
             const host = document.getElementById('spv-quote-latest-home');
             if (!host || !host.shadowRoot) return 'no-host';
             const inp = host.shadowRoot.getElementById(fid);
             if (!inp) return 'no-input:' + fid;
-            inp.value = val;
+            const nativeSet = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value').set;
+            nativeSet.call(inp, val);
             inp.dispatchEvent(new Event('input',  {bubbles: true}));
             inp.dispatchEvent(new Event('change', {bubbles: true}));
             return 'ok:' + inp.value;
@@ -30,24 +32,32 @@ async def set_shadow_date(page, field_id, iso_date):
         [field_id, iso_date]
     )
     log.info(f"set_shadow_date({field_id}, {iso_date}) -> {ok}")
-    return ok.startswith('ok')
+    return str(ok).startswith('ok')
 
 
-async def click_shadow_btn(page, btn_id):
-    """Click a button by id inside the SPV-QUOTE shadow DOM."""
-    ok = await page.evaluate(
-        """([bid]) => {
-            const host = document.getElementById('spv-quote-latest-home');
-            if (!host || !host.shadowRoot) return 'no-host';
-            const btn = host.shadowRoot.getElementById(bid);
-            if (!btn) return 'no-btn:' + bid;
-            btn.click();
-            return 'clicked';
-        }""",
-        [btn_id]
-    )
-    log.info(f"click_shadow_btn({btn_id}) -> {ok}")
-    return ok == 'clicked'
+async def click_cotizar(page):
+    """Click 'Cotiza Gratis' button using Playwright native click (pierce shadow DOM)."""
+    # Playwright's locator pierces shadow DOM automatically
+    # The button text is "Cotiza Gratis" inside the shadow host
+    try:
+        btn = page.locator('#spv-quote-latest-home').locator('#btn-quote')
+        await btn.click(timeout=10000)
+        log.info("click_cotizar -> clicked via locator")
+        return True
+    except Exception as e:
+        log.error(f"click_cotizar locator failed: {e}")
+
+    # Fallback: evaluate click (may not navigate on headless, but try)
+    ok = await page.evaluate("""() => {
+        const host = document.getElementById('spv-quote-latest-home');
+        if (!host || !host.shadowRoot) return 'no-host';
+        const btn = host.shadowRoot.getElementById('btn-quote');
+        if (!btn) return 'no-btn';
+        btn.click();
+        return 'eval-clicked';
+    }""")
+    log.info(f"click_cotizar fallback -> {ok}")
+    return True
 
 
 # ── extraction ─────────────────────────────────────────────────────────────
@@ -92,7 +102,6 @@ async def extract_plans(page, days):
         price_raw  = re.sub(r'[^\d]', '', price_m.group(1))
         discount   = f"-{disc_m.group(1)}%" if disc_m else ''
 
-        # second COP price = original (strikethrough)
         prices_all = re.findall(r'\$([\d,.]+)\s*COP', text)
         orig_raw = re.sub(r'[^\d]', '', prices_all[1]) if len(prices_all) > 1 else ''
 
@@ -115,7 +124,7 @@ async def extract_plans(page, days):
 # ── single-session quoting ─────────────────────────────────────────────────
 
 async def quote_one(page, days):
-    """Navigate to home, set dates, submit, extract. Same browser session."""
+    """Navigate to home, set dates, click Cotiza, extract. Same session."""
     dep = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
     ret = (datetime.now() + timedelta(days=30 + days)).strftime('%Y-%m-%d')
     log.info(f"=== Quote {days}d | {dep} -> {ret} ===")
@@ -128,11 +137,12 @@ async def quote_one(page, days):
     await set_shadow_date(page, 'arrivalDate', ret)
     await human_pause(page, 800, 1800)
 
-    await click_shadow_btn(page, 'btn-quote')
+    await click_cotizar(page)
 
     # Wait for navigation to /cotizar/ page
     try:
         await page.wait_for_url('**/cotizar/**', timeout=20000)
+        log.info(f"  Navigated to: {page.url}")
     except PWTimeout:
         log.error(f"No /cotizar/ navigation for {days}d. URL={page.url}")
 
@@ -145,7 +155,7 @@ async def quote_one(page, days):
 # ── main entry ─────────────────────────────────────────────────────────────
 
 async def run():
-    log.info("SPV scraper start — single session, 10 / 20 / 30 days, Europa")
+    log.info("SPV scraper start — single session, 10/20/30 days, Europa")
     all_plans = []
 
     async with async_playwright() as p:
@@ -173,7 +183,6 @@ async def run():
                 log.error(f"quote_one({days}) crashed: {exc}")
                 all_plans.append({'plan': 'ERROR', 'price': '', 'original_price': '',
                                    'discount': '', 'days': days})
-            # human pause between quotes
             await human_pause(page, 3000, 6000)
 
         await ctx.close()
