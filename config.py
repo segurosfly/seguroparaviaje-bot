@@ -24,7 +24,7 @@ COLUMNS   = [
 # Email
 EMAIL_TO       = "info@segurosfly.com"
 SMTP_SERVER    = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT      = int(os.getenv("SMTP_PORT", "587"))
+SMTP_PORT      = int(os.getenv("SMTP_PORT") or "587")
 EMAIL_USER     = os.getenv("EMAIL_USER", "")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
 
