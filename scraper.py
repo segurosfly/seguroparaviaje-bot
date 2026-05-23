@@ -90,7 +90,7 @@ async def click_cotizar(page):
 
 async def wait_results(page):
     try:
-        await page.wait_for_selector('.h-90.cursor-pointer', timeout=25000)
+        await page.wait_for_load_state('networkidle', timeout=30000)
         log.info('Resultados cargados')
         return True
     except PWTimeout:
