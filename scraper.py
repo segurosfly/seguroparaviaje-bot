@@ -8,225 +8,180 @@ from config import URL_HOME, HEADLESS, UA
 from logger import log
 
 
-async def pause(lo=1.0, hi=3.0):
-    await asyncio.sleep(random.uniform(lo, hi))
+# ── helpers ────────────────────────────────────────────────────────────────
+
+async def human_pause(page, lo=2000, hi=5000):
+    await page.wait_for_timeout(random.randint(lo, hi))
 
 
-async def set_date_shadow(page, field_id, date_value):
-    """Set a date input value inside shadow DOM of #spv-quote-latest-home.
-    date_value should be YYYY-MM-DD format.
+async def set_shadow_date(page, field_id, iso_date):
+    """Set #departureDate / #arrivalDate inside SPV-QUOTE shadow DOM."""
+    ok = await page.evaluate(
+        """([fid, val]) => {
+            const host = document.getElementById('spv-quote-latest-home');
+            if (!host || !host.shadowRoot) return 'no-host';
+            const inp = host.shadowRoot.getElementById(fid);
+            if (!inp) return 'no-input:' + fid;
+            inp.value = val;
+            inp.dispatchEvent(new Event('input',  {bubbles: true}));
+            inp.dispatchEvent(new Event('change', {bubbles: true}));
+            return 'ok:' + inp.value;
+        }""",
+        [field_id, iso_date]
+    )
+    log.info(f"set_shadow_date({field_id}, {iso_date}) -> {ok}")
+    return ok.startswith('ok')
+
+
+async def click_shadow_btn(page, btn_id):
+    """Click a button by id inside the SPV-QUOTE shadow DOM."""
+    ok = await page.evaluate(
+        """([bid]) => {
+            const host = document.getElementById('spv-quote-latest-home');
+            if (!host || !host.shadowRoot) return 'no-host';
+            const btn = host.shadowRoot.getElementById(bid);
+            if (!btn) return 'no-btn:' + bid;
+            btn.click();
+            return 'clicked';
+        }""",
+        [btn_id]
+    )
+    log.info(f"click_shadow_btn({btn_id}) -> {ok}")
+    return ok == 'clicked'
+
+
+# ── extraction ─────────────────────────────────────────────────────────────
+
+async def extract_plans(page, days):
     """
-    result = await page.evaluate(f"""() => {{
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return 'no host or shadow';
-        const inp = host.shadowRoot.getElementById('{field_id}');
-        if (!inp) return 'input not found: {field_id}';
-        inp.value = '{date_value}';
-        inp.dispatchEvent(new Event('input', {{bubbles: true}}));
-        inp.dispatchEvent(new Event('change', {{bubbles: true}}));
-        return 'ok:' + inp.value;
-    }}""")
-    log(f"set_date_shadow({field_id}, {date_value}): {result}")
-    return 'ok' in str(result)
-
-
-async def click_cotizar_shadow(page):
-    """Click the #btn-quote submit button inside shadow DOM."""
-    result = await page.evaluate("""() => {
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return 'no host or shadow';
-        const btn = host.shadowRoot.getElementById('btn-quote');
-        if (!btn) return 'btn not found';
-        btn.click();
-        return 'clicked';
-    }""")
-    log(f"click_cotizar_shadow: {result}")
-    return 'clicked' in str(result)
-
-
-async def extract_plans_from_text(page_text, days):
-    """
-    Parse plan names and prices from the cotizar results page text.
-    
-    Expected pattern in page text:
-        Esencial
-        Precio hoy
-        -30%
-        $99,952 COP
-        $142,788 COP
-        ...
-        Estándar
-        ...
+    On the /cotizar/ results page:
+    - wait for 'Precio hoy' text to appear
+    - grab every div that contains 'Precio hoy'
+    - regex-extract plan name, price, discount
+    Returns list of dicts.
     """
     plans = []
-    
-    # Plan names from the site
-    plan_names = ['Esencial', 'Estándar', 'Ideal', 'Premium', 'Elite', 'Básico', 'Completo', 'Plus']
-    
-    lines = page_text.split('\n')
-    lines = [l.strip() for l in lines if l.strip()]
-    
-    for i, line in enumerate(lines):
-        if line in plan_names:
-            plan_name = line
-            price = None
-            original_price = None
-            discount = None
-            
-            # Look ahead up to 10 lines for price pattern
-            for j in range(i+1, min(i+12, len(lines))):
-                # Price pattern: $99,952 COP or $119,364 COP
-                price_match = re.search(r'\$([\d,]+)\s*COP', lines[j])
-                if price_match and price is None:
-                    price = lines[j]
-                    # Clean: "99952"
-                    price_clean = re.sub(r'[^\d]', '', price_match.group(1))
-                elif price_match and original_price is None and price is not None:
-                    original_price = lines[j]
-                    
-                # Discount pattern: -30% or -35%
-                disc_match = re.search(r'-(\d+)%', lines[j])
-                if disc_match and discount is None:
-                    discount = '-' + disc_match.group(1) + '%'
-                
-                # Stop if we hit another plan name
-                if lines[j] in plan_names and lines[j] != plan_name:
-                    break
-            
-            if price:
-                price_clean = re.sub(r'[^\d]', '', re.search(r'\$([\d,]+)\s*COP', price).group(1)) if re.search(r'\$([\d,]+)\s*COP', price) else price
-                orig_clean = re.sub(r'[^\d]', '', re.search(r'\$([\d,]+)\s*COP', original_price).group(1)) if original_price and re.search(r'\$([\d,]+)\s*COP', original_price) else ''
-                
-                plans.append({
-                    'plan': plan_name,
-                    'price': price_clean,
-                    'original_price': orig_clean,
-                    'discount': discount or '',
-                    'currency': 'COP',
-                    'days': days,
-                })
-                log(f"  Found plan: {plan_name} = {price_clean} COP (orig: {orig_clean}, disc: {discount})")
-    
-    if not plans:
-        log(f"WARNING: No plans found in text for {days} days. Text sample: {page_text[:300]}")
+
+    try:
+        await page.wait_for_selector("text=Precio hoy", timeout=30000)
+    except PWTimeout:
+        log.error(f"'Precio hoy' never appeared for {days}d. URL={page.url}")
+        return [{'plan': 'NO_RESULTS', 'price': '', 'original_price': '',
+                 'discount': '', 'days': days}]
+
+    await page.wait_for_load_state("networkidle")
+    await human_pause(page, 1500, 3000)
+
+    cards = await page.locator("div").filter(has_text="Precio hoy").all()
+    log.info(f"Found {len(cards)} 'Precio hoy' cards for {days}d")
+
+    for card in cards:
+        try:
+            text = await card.inner_text()
+        except Exception:
+            continue
+
+        plan_m  = re.search(r'(Esencial|Est\u00e1ndar|Ideal)', text)
+        price_m = re.search(r'\$([\d,.]+)\s*COP', text)
+        disc_m  = re.search(r'-(\d+)%', text)
+
+        if not plan_m or not price_m:
+            continue
+
+        plan_name  = plan_m.group(1)
+        price_raw  = re.sub(r'[^\d]', '', price_m.group(1))
+        discount   = f"-{disc_m.group(1)}%" if disc_m else ''
+
+        # second COP price = original (strikethrough)
+        prices_all = re.findall(r'\$([\d,.]+)\s*COP', text)
+        orig_raw = re.sub(r'[^\d]', '', prices_all[1]) if len(prices_all) > 1 else ''
+
         plans.append({
-            'plan': 'NO_RESULTS',
-            'price': '',
-            'original_price': '',
-            'discount': '',
-            'currency': '',
-            'days': days,
+            'plan':           plan_name,
+            'price':          price_raw,
+            'original_price': orig_raw,
+            'discount':       discount,
+            'days':           days,
         })
-    
+        log.info(f"  {days}d | {plan_name} | {price_raw} COP | {discount}")
+
+    if not plans:
+        log.error(f"No valid cards parsed for {days}d")
+        plans.append({'plan': 'NO_RESULTS', 'price': '', 'original_price': '',
+                      'discount': '', 'days': days})
     return plans
 
 
-async def quote_duration(page, days):
-    """
-    Starting from the homepage, set dates for a given duration and submit.
-    Returns list of plan dicts.
-    """
-    log(f"=== Quote: {days} days ===")
-    
-    dep_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-    ret_date = (datetime.now() + timedelta(days=30 + days)).strftime('%Y-%m-%d')
-    log(f"  Dates: {dep_date} -> {ret_date}")
-    
-    # Navigate to homepage
+# ── single-session quoting ─────────────────────────────────────────────────
+
+async def quote_one(page, days):
+    """Navigate to home, set dates, submit, extract. Same browser session."""
+    dep = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+    ret = (datetime.now() + timedelta(days=30 + days)).strftime('%Y-%m-%d')
+    log.info(f"=== Quote {days}d | {dep} -> {ret} ===")
+
     await page.goto(URL_HOME, wait_until='domcontentloaded', timeout=30000)
-    await pause(2.0, 3.5)
-    
-    # Set departure date in shadow DOM
-    ok1 = await set_date_shadow(page, 'departureDate', dep_date)
-    await pause(0.5, 1.0)
-    
-    # Set return date in shadow DOM
-    ok2 = await set_date_shadow(page, 'arrivalDate', ret_date)
-    await pause(0.8, 1.5)
-    
-    if not (ok1 and ok2):
-        log(f"WARNING: Date setting may have failed: dep={ok1}, ret={ok2}")
-    
-    # Click the quote button
-    clicked = await click_cotizar_shadow(page)
-    if not clicked:
-        log("WARNING: Quote button click may have failed")
-    
+    await human_pause(page, 2000, 4000)
+
+    await set_shadow_date(page, 'departureDate', dep)
+    await human_pause(page, 500, 1200)
+    await set_shadow_date(page, 'arrivalDate', ret)
+    await human_pause(page, 800, 1800)
+
+    await click_shadow_btn(page, 'btn-quote')
+
     # Wait for navigation to /cotizar/ page
     try:
         await page.wait_for_url('**/cotizar/**', timeout=20000)
-        log(f"  Navigated to: {page.url}")
     except PWTimeout:
-        log(f"  Navigation timeout. Current URL: {page.url}")
-    
-    await pause(2.0, 4.0)
-    await page.wait_for_load_state('networkidle', timeout=20000)
-    await pause(1.0, 2.0)
-    
-    # Extract text from results page
-    page_text = await page.evaluate("""() => {
-        return document.body.innerText || document.body.textContent || '';
-    }""")
-    
-    log(f"  Page text length: {len(page_text)} chars")
-    log(f"  URL: {page.url}")
-    
-    plans = await extract_plans_from_text(page_text, days)
-    log(f"  Extracted {len(plans)} plans for {days} days")
-    return plans
+        log.error(f"No /cotizar/ navigation for {days}d. URL={page.url}")
 
+    await page.wait_for_load_state('networkidle', timeout=20000)
+    await human_pause(page, 2000, 4000)
+
+    return await extract_plans(page, days)
+
+
+# ── main entry ─────────────────────────────────────────────────────────────
 
 async def run():
-    """
-    Single browser session: quote for 10, 20, 30 days for Europe.
-    Human-like behavior throughout.
-    """
-    log("Starting SPV scraper - single session, 3 durations (Europa)")
+    log.info("SPV scraper start — single session, 10 / 20 / 30 days, Europa")
     all_plans = []
-    durations = [10, 20, 30]
-    
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=HEADLESS,
             args=['--no-sandbox', '--disable-setuid-sandbox',
-                  '--disable-blink-features=AutomationControlled']
+                  '--disable-blink-features=AutomationControlled'],
         )
-        context = await browser.new_context(
+        ctx = await browser.new_context(
             user_agent=UA,
             viewport={'width': 1280, 'height': 800},
             locale='es-CO',
-            timezone_id='America/Bogota'
+            timezone_id='America/Bogota',
         )
-        page = await context.new_page()
-        
-        # Mask automation signals
-        await page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-        """)
-        
-        for days in durations:
+        page = await ctx.new_page()
+        await page.add_init_script(
+            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+        )
+
+        for days in [10, 20, 30]:
             try:
-                plans = await quote_duration(page, days)
+                plans = await quote_one(page, days)
                 all_plans.extend(plans)
-                # Human pause between quotes
-                await pause(3.0, 6.0)
-            except Exception as e:
-                log(f"Error quoting {days} days: {e}")
-                all_plans.append({
-                    'plan': 'ERROR',
-                    'price': '',
-                    'original_price': '',
-                    'discount': '',
-                    'currency': '',
-                    'days': days,
-                })
-        
-        await context.close()
+            except Exception as exc:
+                log.error(f"quote_one({days}) crashed: {exc}")
+                all_plans.append({'plan': 'ERROR', 'price': '', 'original_price': '',
+                                   'discount': '', 'days': days})
+            # human pause between quotes
+            await human_pause(page, 3000, 6000)
+
+        await ctx.close()
         await browser.close()
-    
-    log(f"Scraping complete. Total plans: {len(all_plans)}")
-    for p in all_plans:
-        log(f"  {p['days']}d | {p['plan']} | {p['price']} COP")
+
+    log.info(f"Done. {len(all_plans)} records collected.")
+    for r in all_plans:
+        log.info(f"  {r['days']}d | {r['plan']} | {r.get('price','')} COP")
     return all_plans
 
 
