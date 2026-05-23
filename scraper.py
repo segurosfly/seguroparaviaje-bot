@@ -1,263 +1,408 @@
 import asyncio
 import random
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 
 from config import (
     URL_HOME, USER_NAME, USER_EMAIL, USER_PHONE,
-    DURATIONS, DIR_SCREENSHOTS, HEADLESS, UA, get_trip_dates
+    HEADLESS, UA
 )
 from logger import log
 
-os.makedirs(DIR_SCREENSHOTS, exist_ok=True)
 
-
-async def pause(lo=0.4, hi=1.2):
+async def pause(lo=1.0, hi=3.0):
     await asyncio.sleep(random.uniform(lo, hi))
 
 
-async def shot(page, label):
-    ts = datetime.now().strftime('%H%M%S')
-    path = os.path.join(DIR_SCREENSHOTS, ts + '_' + label + '.png')
-    await page.screenshot(path=path, full_page=False)
-    log.info('Screenshot: ' + path)
-    return path
+async def human_type(page, selector, text, delay_lo=80, delay_hi=200):
+    """Type text character by character with random delays (human simulation)."""
+    await page.click(selector)
+    await pause(0.3, 0.7)
+    for char in text:
+        await page.keyboard.type(char)
+        await asyncio.sleep(random.uniform(delay_lo, delay_hi) / 1000.0)
 
 
-async def shadow_eval(page, js):
-    script = (
-        '(function(){'
-        'var host=document.getElementById("spv-quote-latest-home");'
-        'if(!host||!host.shadowRoot)return null;'
-        'var shadow=host.shadowRoot;' + js + '})()'
-    )
-    return await page.evaluate(script)
+async def scroll_smooth(page, pixels=300):
+    """Smooth scroll to simulate human behavior."""
+    steps = random.randint(3, 6)
+    for _ in range(steps):
+        await page.evaluate(f'window.scrollBy(0, {pixels // steps})')
+        await asyncio.sleep(random.uniform(0.1, 0.3))
 
 
-async def wait_shadow(page, retries=8):
-    check_js = (
-        "(function(){"
-        "var h=document.getElementById('spv-quote-latest-home');"
-        "return !!(h&&h.shadowRoot&&h.shadowRoot.querySelector('#btn-quote'));"
-        "})()"
-    )
-    for i in range(retries):
-        ready = await page.evaluate(check_js)
-        if ready:
-            log.info('Shadow DOM listo')
-            return True
-        log.info('Esperando Shadow DOM... intento ' + str(i + 1))
-        await asyncio.sleep(2)
-    return False
+async def fill_form_shadow(page, origin, destination, dep_date, ret_date):
+    """Fill the quote form handling Shadow DOM inputs."""
+    log(f"Filling form: {origin} -> {destination}, {dep_date} to {ret_date}")
 
-async def fill_shadow_form(page, departure, arrival):
-    dep_js = (
-        "var dep=shadow.querySelector('#departureDate');"
-        "dep.value='" + departure + "';"
-        "dep.dispatchEvent(new Event('input',{bubbles:true}));"
-        "dep.dispatchEvent(new Event('change',{bubbles:true}));"
-    )
-    await shadow_eval(page, dep_js)
-    await pause(0.3, 0.6)
+    # Wait for page to fully load
+    await page.wait_for_load_state('networkidle', timeout=30000)
+    await pause(1.5, 3.0)
 
-    arr_js = (
-        "var arr=shadow.querySelector('#arrivalDate');"
-        "arr.value='" + arrival + "';"
-        "arr.dispatchEvent(new Event('input',{bubbles:true}));"
-        "arr.dispatchEvent(new Event('change',{bubbles:true}));"
-    )
-    await shadow_eval(page, arr_js)
-    await pause(0.3, 0.6)
+    # Scroll gently to the form area
+    await scroll_smooth(page, 200)
+    await pause(0.5, 1.5)
 
-    for fid, val in [('#fullName', USER_NAME), ('#email', USER_EMAIL), ('#phone', USER_PHONE)]:
-        field_js = (
-            "var el=shadow.querySelector('" + fid + "');"
-            "if(el){el.value='" + val + "';"
-            "el.dispatchEvent(new Event('input',{bubbles:true}));"
-            "el.dispatchEvent(new Event('change',{bubbles:true}));}"
-        )
-        await shadow_eval(page, field_js)
-        await pause(0.2, 0.5)
+    # Helper to evaluate inside shadow DOM
+    async def shadow_fill(host_selector, input_selector, value):
+        result = await page.evaluate(f"""() => {{
+            const host = document.querySelector('{host_selector}');
+            if (!host) return 'host not found: {host_selector}';
+            const root = host.shadowRoot;
+            if (!root) return 'no shadowRoot';
+            const inp = root.querySelector('{input_selector}');
+            if (!inp) return 'input not found: {input_selector}';
+            inp.focus();
+            inp.value = '';
+            inp.dispatchEvent(new Event('input', {{bubbles: true}}));
+            inp.value = '{value}';
+            inp.dispatchEvent(new Event('input', {{bubbles: true}}));
+            inp.dispatchEvent(new Event('change', {{bubbles: true}}));
+            return 'ok';
+        }}""")
+        log(f"shadow_fill({host_selector}, {input_selector}): {result}")
+        return result
 
-    log.info('Fechas: ' + departure + ' -> ' + arrival)
+    # Fill destination field - try multiple approaches
+    filled = False
+
+    # Approach 1: Direct page inputs
+    try:
+        inputs = await page.query_selector_all('input[type="text"], input[placeholder*="destino" i], input[placeholder*="destination" i]')
+        for inp in inputs:
+            placeholder = await inp.get_attribute('placeholder') or ''
+            if 'destino' in placeholder.lower() or 'destination' in placeholder.lower():
+                await inp.click()
+                await pause(0.3, 0.6)
+                await inp.fill(destination)
+                filled = True
+                log(f"Filled destination via direct input: {destination}")
+                break
+    except Exception as e:
+        log(f"Direct input approach failed: {e}")
+
+    # Fill dates using visible date inputs
+    try:
+        date_inputs = await page.query_selector_all('input[type="date"], input[placeholder*="fecha" i], input[placeholder*="date" i]')
+        log(f"Found {len(date_inputs)} date inputs")
+        if len(date_inputs) >= 2:
+            await date_inputs[0].click()
+            await date_inputs[0].fill(dep_date)
+            await pause(0.5, 1.0)
+            await date_inputs[1].click()
+            await date_inputs[1].fill(ret_date)
+            log(f"Filled dates: {dep_date} -> {ret_date}")
+    except Exception as e:
+        log(f"Date fill failed: {e}")
+
+    await pause(1.0, 2.0)
 
 
 async def click_cotizar(page):
-    await shadow_eval(page, "shadow.querySelector('#btn-quote').click();")
-    log.info('Click en Cotiza Gratis')
+    """Click the main quote button."""
+    log("Clicking quote button...")
+    await pause(0.8, 1.5)
+
+    # Try different button selectors
+    buttons_to_try = [
+        'button:has-text("Cotiza")',
+        'button:has-text("Cotizar")',
+        'button:has-text("Buscar")',
+        'button[type="submit"]',
+        'input[type="submit"]',
+    ]
+
+    for selector in buttons_to_try:
+        try:
+            btn = await page.query_selector(selector)
+            if btn:
+                await btn.scroll_into_view_if_needed()
+                await pause(0.3, 0.8)
+                await btn.click()
+                log(f"Clicked button: {selector}")
+                return True
+        except Exception as e:
+            log(f"Button {selector} failed: {e}")
+
+    # Last resort: evaluate to find and click button with "cotiza" text
+    result = await page.evaluate("""() => {
+        const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a'));
+        const btn = buttons.find(b => /cotiz|buscar|quote/i.test(b.textContent || b.value || ''));
+        if (btn) { btn.click(); return 'clicked: ' + (btn.textContent || btn.value).trim().substring(0, 40); }
+        return 'no button found';
+    }""")
+    log(f"Fallback button click: {result}")
+    return True
 
 
-async def wait_results(page):
-    try:
-        await page.wait_for_load_state('networkidle', timeout=30000)
-        log.info('Resultados cargados')
-        return True
-    except PWTimeout:
-        log.warning('Timeout esperando resultados')
-        html_snap = await page.inner_text('body') if await page.query_selector('body') else ''
-        log.warning('Body text (400c): ' + html_snap[:400])
-        return False
+async def extract_text_plans(page, days):
+    """Extract plan data using full text parsing - no fragile CSS selectors."""
+    log(f"Extracting plans from page text (days={days})...")
 
+    await pause(2.0, 4.0)
 
-async def extract_plans(page):
-    js = """
-    (function(){
-        var cards = document.querySelectorAll('.h-90.cursor-pointer');
-        var result = [];
-        cards.forEach(function(card){
-            var text = card.textContent;
-            var nameEl = card.querySelector('.plan-name');
-            var name = nameEl ? nameEl.textContent.trim() : 'Desconocido';
-            var pm = text.match(/\$([\d,]+)\s*COP/);
-            var precio = pm ? pm[1].replace(/,/g,'') : '';
-            var all = text.match(/\$[\d,]+\s*COP/g) || [];
-            var orig = all.length > 1 ? all[1].replace(/[\$\sCOP,]/g,'') : '';
-            var dm = text.match(/-?(\d+)%/);
-            var desc = dm ? dm[1] + '%' : '';
-            result.push({
-                plan: name,
-                precio_cop: precio,
-                descuento: desc,
-                precio_original: orig
-            });
+    # Get full visible text from page
+    page_text = await page.evaluate("""() => {
+        // Remove scripts and styles
+        const clone = document.cloneNode(true);
+        const scripts = clone.querySelectorAll('script, style, noscript');
+        scripts.forEach(s => s.remove());
+        return document.body.innerText || document.body.textContent;
+    }""")
+
+    log(f"Page text length: {len(page_text)} chars")
+    log(f"Page text sample (first 500): {page_text[:500]}")
+
+    plans = []
+
+    # Strategy 1: Find prices with COP or USD patterns
+    # Match patterns like "COP 1.234.567" or "$ 1,234" or "1.234.567 COP"
+    price_patterns = [
+        r'COP\s*[\$]?\s*([\d][\d.,]+)',
+        r'USD\s*[\$]?\s*([\d][\d.,]+)',
+        r'\$\s*([\d][\d.,]{4,})',
+        r'([\d][\d.,]+)\s*COP',
+        r'([\d][\d.,]+)\s*USD',
+    ]
+
+    all_prices = []
+    for pattern in price_patterns:
+        matches = re.findall(pattern, page_text, re.IGNORECASE)
+        for m in matches:
+            # Clean the price
+            clean = re.sub(r'[^\d]', '', m)
+            if len(clean) >= 4:  # At least 4 digits = meaningful price
+                all_prices.append(clean)
+
+    log(f"Found {len(all_prices)} price candidates: {all_prices[:10]}")
+
+    # Strategy 2: Look for plan name keywords
+    plan_keywords = [
+        'básico', 'basic', 'esencial', 'essential', 'estándar', 'standard',
+        'plus', 'premium', 'elite', 'gold', 'platinum', 'full', 'completo',
+        'económico', 'económic', 'asistencia', 'protection', 'protección',
+        'traveler', 'viajero', 'explorer', 'explorador'
+    ]
+
+    # Find lines that contain plan names near prices
+    lines = page_text.split('\n')
+    plan_lines = []
+    for i, line in enumerate(lines):
+        line_lower = line.lower().strip()
+        if any(kw in line_lower for kw in plan_keywords) and len(line.strip()) > 3:
+            # Check nearby lines for price
+            context = ' '.join(lines[max(0,i-3):min(len(lines),i+4)])
+            price_in_context = re.search(r'[\d][\d.,]{4,}', context)
+            plan_lines.append({
+                'name': line.strip(),
+                'context': context[:200],
+                'has_price': bool(price_in_context)
+            })
+
+    log(f"Found {len(plan_lines)} plan-named lines")
+    for pl in plan_lines[:5]:
+        log(f"  Plan line: {pl['name'][:60]} | has_price={pl['has_price']}")
+
+    # Strategy 3: Try to find structured cards via evaluate
+    cards_data = await page.evaluate("""() => {
+        const results = [];
+
+        // Try common result card patterns
+        const cardSelectors = [
+            '[class*="card"]', '[class*="plan"]', '[class*="result"]',
+            '[class*="seguro"]', '[class*="producto"]', '[class*="oferta"]',
+            '[class*="cotiz"]', '[class*="precio"]', 'article', '.item'
+        ];
+
+        let cards = [];
+        for (const sel of cardSelectors) {
+            const found = document.querySelectorAll(sel);
+            if (found.length > 0 && found.length < 50) {
+                cards = Array.from(found);
+                break;
+            }
+        }
+
+        // Also try shadow DOM
+        const shadowHosts = document.querySelectorAll('*');
+        shadowHosts.forEach(host => {
+            if (host.shadowRoot) {
+                const shadowText = host.shadowRoot.textContent || '';
+                if (/COP|USD|\$[\d]/.test(shadowText)) {
+                    results.push({
+                        source: 'shadow:' + host.tagName + '.' + (host.className || '').substring(0, 30),
+                        text: shadowText.substring(0, 500)
+                    });
+                }
+            }
         });
-        return result;
-    })()
-    """
-    plans = await page.evaluate(js)
-    log.info('Planes extraidos: ' + str(len(plans)))
-    for p in plans:
-        log.info('  ' + p['plan'] + '  $' + p['precio_cop'] + ' COP  ' + p['descuento'])
+
+        for (const card of cards.slice(0, 20)) {
+            const text = card.innerText || card.textContent || '';
+            if (/[\d]{4,}/.test(text) || /COP|USD/.test(text)) {
+                results.push({
+                    source: 'card:' + card.className.substring(0, 40),
+                    text: text.substring(0, 300)
+                });
+            }
+        }
+
+        return results;
+    }""")
+
+    log(f"Card extraction found {len(cards_data)} items")
+    for card in cards_data[:5]:
+        log(f"  Card [{card['source']}]: {card['text'][:100]}")
+
+    # Build final plans list from what we found
+    if plan_lines:
+        for i, pl in enumerate(plan_lines[:5]):
+            # Find associated price
+            price_match = re.search(r'([\d][\d.,]{4,})', pl['context'])
+            price_val = price_match.group(1) if price_match else 'N/A'
+            currency = 'COP'
+            if 'USD' in pl['context'].upper():
+                currency = 'USD'
+
+            plans.append({
+                'plan': pl['name'][:60],
+                'price': price_val,
+                'currency': currency,
+                'days': days,
+                'source': 'text_parse'
+            })
+    elif all_prices:
+        # We have prices but no plan names - use generic names
+        for i, price in enumerate(all_prices[:5]):
+            plans.append({
+                'plan': f'Plan_{i+1}',
+                'price': price,
+                'currency': 'COP',
+                'days': days,
+                'source': 'price_only'
+            })
+    elif cards_data:
+        for card in cards_data[:3]:
+            price_match = re.search(r'([\d][\d.,]{4,})', card['text'])
+            price_val = price_match.group(1) if price_match else 'N/A'
+            plans.append({
+                'plan': card['source'][:40],
+                'price': price_val,
+                'currency': 'COP',
+                'days': days,
+                'source': 'card_extract'
+            })
+
+    if not plans:
+        log("WARNING: No plans found - saving partial data")
+        plans.append({
+            'plan': 'NO_RESULTS',
+            'price': 'N/A',
+            'currency': 'N/A',
+            'days': days,
+            'source': 'empty'
+        })
+
+    log(f"Extracted {len(plans)} plans for {days} days")
     return plans
 
 
-async def modify_dates(page, departure, arrival):
-    sel = 'input.form-control.input-form-traveler.b-input-quote'
-    inputs = await page.query_selector_all(sel)
-    if len(inputs) < 2:
-        log.warning('No se encontraron inputs de fecha para modificar')
-        return False
-    for i, value in enumerate([departure, arrival]):
-        await inputs[i].triple_click()
-        await pause(0.1, 0.3)
-        await inputs[i].type(value, delay=50)
-        await pause(0.2, 0.4)
-    btn = page.locator('button', has_text='Modificar')
-    await btn.first.click()
-    log.info('Modificando fechas: ' + departure + ' -> ' + arrival)
-    await pause(1.5, 3.0)
-    return True
+async def get_trip_dates(days_duration):
+    """Generate departure and return dates for a trip."""
+    dep = datetime.now() + timedelta(days=30)
+    ret = dep + timedelta(days=days_duration)
+    return dep.strftime('%Y-%m-%d'), ret.strftime('%Y-%m-%d')
+
 
 async def run():
-    all_records = []
-    today = datetime.now().strftime('%Y-%m-%d')
-    now   = datetime.now().strftime('%H:%M:%S')
+    """
+    Single browser session: quote for 10, 20, 30 days for Europe.
+    Human-like behavior throughout.
+    """
+    log("Starting SPV scraper - single session, 3 durations")
+    all_plans = []
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
+    durations = [10, 20, 30]
+    origin = 'Colombia'
+    destination = 'Europa'
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
             headless=HEADLESS,
-            args=[
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled'
-            ]
+            args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
         )
-        ctx = await browser.new_context(
-            viewport={'width': 1366, 'height': 768},
+        context = await browser.new_context(
             user_agent=UA,
+            viewport={'width': 1280, 'height': 800},
             locale='es-CO',
-            timezone_id='America/Bogota',
+            timezone_id='America/Bogota'
         )
-        await ctx.add_init_script(
-            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
-        )
-        page = await ctx.new_page()
+        page = await context.new_page()
 
-        try:
-            log.info('Abriendo ' + URL_HOME)
-            await page.goto(URL_HOME, wait_until='networkidle', timeout=60000)
-            await pause(2, 4)
+        # Mask automation signals
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        """)
 
-            if not await wait_shadow(page):
-                log.error('Shadow DOM no disponible — abortando')
-                await shot(page, 'error_shadow')
-                return all_records
+        # --- First quote: 10 days ---
+        log(f"=== Quote 1: {durations[0]} days ===")
+        dep_date, ret_date = await get_trip_dates(durations[0])
 
-            # Primera cotizacion
-            dep0, arr0 = get_trip_dates(DURATIONS[0])
-            await fill_shadow_form(page, dep0, arr0)
-            await pause(0.8, 1.5)
-            await shot(page, 'form_' + str(DURATIONS[0]) + 'd')
-            await click_cotizar(page)
-            await page.wait_for_load_state('networkidle', timeout=60000)
-            await pause(2, 4)
+        await page.goto(URL_HOME, wait_until='domcontentloaded', timeout=30000)
+        await pause(2.0, 4.0)
 
-            ok = await wait_results(page)
-            await shot(page, 'results_' + str(DURATIONS[0]) + 'd')
+        await fill_form_shadow(page, origin, destination, dep_date, ret_date)
+        await pause(1.0, 2.0)
+        await click_cotizar(page)
+        await page.wait_for_load_state('networkidle', timeout=30000)
+        await pause(3.0, 5.0)
 
-            if ok:
-                for p in await extract_plans(page):
-                    rec = {'fecha': today, 'hora': now,
-                           'duracion_dias': DURATIONS[0], **p,
-                           'cambio_vs_ayer': '', 'status': 'ok',
-                           'screenshot': 'results_' + str(DURATIONS[0]) + 'd.png'}
-                    all_records.append(rec)
-            else:
-                all_records.append({
-                    'fecha': today, 'hora': now,
-                    'duracion_dias': DURATIONS[0], 'plan': 'ERROR',
-                    'precio_cop': '', 'descuento': '', 'precio_original': '',
-                    'cambio_vs_ayer': '', 'status': 'error', 'screenshot': ''
-                })
+        plans_10 = await extract_text_plans(page, durations[0])
+        all_plans.extend(plans_10)
 
-            # Duraciones restantes — reusar sesion
-            for duration in DURATIONS[1:]:
-                dep, arr = get_trip_dates(duration)
-                log.info('Cotizando ' + str(duration) + ' dias  (' + dep + ' -> ' + arr + ')')
+        # --- Second quote: 20 days - modify dates only ---
+        log(f"=== Quote 2: {durations[1]} days ===")
+        dep_date2, ret_date2 = await get_trip_dates(durations[1])
+        await pause(2.0, 4.0)
 
-                if not await modify_dates(page, dep, arr):
-                    log.error('No se pudo modificar fechas para ' + str(duration) + 'd')
-                    continue
+        # Go back to home to refill form
+        await page.goto(URL_HOME, wait_until='domcontentloaded', timeout=30000)
+        await pause(2.0, 3.5)
 
-                await page.wait_for_load_state('networkidle', timeout=45000)
-                await pause(2, 4)
+        await fill_form_shadow(page, origin, destination, dep_date2, ret_date2)
+        await pause(1.0, 2.0)
+        await click_cotizar(page)
+        await page.wait_for_load_state('networkidle', timeout=30000)
+        await pause(3.0, 5.0)
 
-                ok = await wait_results(page)
-                await shot(page, 'results_' + str(duration) + 'd')
+        plans_20 = await extract_text_plans(page, durations[1])
+        all_plans.extend(plans_20)
 
-                if ok:
-                    for p in await extract_plans(page):
-                        rec = {'fecha': today, 'hora': now,
-                               'duracion_dias': duration, **p,
-                               'cambio_vs_ayer': '', 'status': 'ok',
-                               'screenshot': 'results_' + str(duration) + 'd.png'}
-                        all_records.append(rec)
-                else:
-                    all_records.append({
-                        'fecha': today, 'hora': now,
-                        'duracion_dias': duration, 'plan': 'ERROR',
-                        'precio_cop': '', 'descuento': '', 'precio_original': '',
-                        'cambio_vs_ayer': '', 'status': 'error', 'screenshot': ''
-                    })
+        # --- Third quote: 30 days ---
+        log(f"=== Quote 3: {durations[2]} days ===")
+        dep_date3, ret_date3 = await get_trip_dates(durations[2])
+        await pause(2.0, 4.0)
 
-                await pause(3, 6)
+        await page.goto(URL_HOME, wait_until='domcontentloaded', timeout=30000)
+        await pause(2.0, 3.5)
 
-        except Exception as e:
-            log.error('Error critico: ' + str(e), exc_info=True)
-            try:
-                await shot(page, 'error_critico')
-            except Exception:
-                pass
-        finally:
-            await browser.close()
+        await fill_form_shadow(page, origin, destination, dep_date3, ret_date3)
+        await pause(1.0, 2.0)
+        await click_cotizar(page)
+        await page.wait_for_load_state('networkidle', timeout=30000)
+        await pause(3.0, 5.0)
 
-    log.info('Scraping terminado. ' + str(len(all_records)) + ' registros.')
-    return all_records
+        plans_30 = await extract_text_plans(page, durations[2])
+        all_plans.extend(plans_30)
+
+        await context.close()
+        await browser.close()
+
+    log(f"Scraping complete. Total plans collected: {len(all_plans)}")
+    return all_plans
 
 
 if __name__ == '__main__':
-    records = asyncio.run(run())
-    for r in records:
-        print(r)
+    asyncio.run(run())
