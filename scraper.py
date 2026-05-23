@@ -95,6 +95,8 @@ async def wait_results(page):
         return True
     except PWTimeout:
         log.warning('Timeout esperando resultados')
+        html_snap = await page.inner_text('body') if await page.query_selector('body') else ''
+        log.warning('Body text (400c): ' + html_snap[:400])
         return False
 
 
