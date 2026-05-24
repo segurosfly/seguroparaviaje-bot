@@ -44,14 +44,13 @@ async def set_shadow_date(page, field_id, iso_date):
 
 
 async def set_shadow_field(page, field_id, value, field_type='input'):
-    """Llena un campo dentro del shadow DOM disparando todos los eventos necesarios."""
+    """Llena un campo dentro del shadow DOM disparando todos los eventos."""
     ok = await page.evaluate(
         """([fid, val, ftype]) => {
             const host = document.getElementById('spv-quote-latest-home');
             if (!host || !host.shadowRoot) return 'no-host';
             let el = host.shadowRoot.getElementById(fid);
             if (!el) return 'no-field:' + fid;
-
             if (ftype === 'select') {
                 const opts = Array.from(el.options);
                 const target = opts.find(o =>
@@ -77,91 +76,121 @@ async def set_shadow_field(page, field_id, value, field_type='input'):
     return str(ok).startswith('ok')
 
 
-async def fill_phone_shadow(page, number: str):
+async def fill_ages_and_close(page):
     """
-    Llena el prefijo +57 (select id=intl) y el número (input id=phone).
-    El select ya viene con Colombia por defecto pero hay que disparar
-    el evento change para que el componente lo considere válido.
+    El campo ages (id=ages, readonly) abre un dropdown al hacer click.
+    El dropdown tiene un botón 'Continuar' (class=select-ages) que lo cierra.
+    Secuencia: click en ages → esperar dropdown → click en Continuar → cerrado.
     """
-    # ── 1. Activar prefijo +57 (id=intl — confirmado en dump Run #15) ───
-    ok_intl = await page.evaluate("""() => {
+    log.info("  fill_ages: abriendo dropdown de pasajeros...")
+
+    # 1. Click en el input readonly de ages para abrir el dropdown
+    opened = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return 'no-host';
-        const sel = host.shadowRoot.getElementById('intl');
-        if (!sel) return 'no-intl';
-        const opts = Array.from(sel.options);
-        const target = opts.find(o =>
-            o.value === '57' || o.value === '+57' ||
-            o.text.includes('57') ||
-            o.text.toLowerCase().includes('colombia')
-        );
-        if (target) sel.value = target.value;
-        else sel.selectedIndex = 1;
-        sel.dispatchEvent(new Event('change', {bubbles: true}));
-        sel.dispatchEvent(new Event('blur',   {bubbles: true}));
-        return 'ok:' + sel.value;
+        const inp = host.shadowRoot.getElementById('ages');
+        if (!inp) return 'no-ages';
+        inp.click();
+        inp.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+        return 'clicked';
     }""")
-    log.info(f"  intl prefix -> {ok_intl}")
-    await page.wait_for_timeout(400)
+    log.info(f"  fill_ages click ages -> {opened}")
+    await page.wait_for_timeout(1000)
 
-    # ── 2. Tipeo real del número con Playwright (pierce shadow DOM) ──────
-    try:
-        inp = page.locator('#spv-quote-latest-home >> #phone')
-        await inp.click()
-        await page.wait_for_timeout(300)
-        await inp.triple_click()
-        await inp.type(number, delay=80)
-        await inp.press('Tab')
-        await page.wait_for_timeout(400)
-        val = await inp.input_value()
-        log.info(f"  phone number -> ok:{val}")
-        return True
-    except Exception as e:
-        log.warning(f"  phone playwright failed: {e}")
+    # 2. Esperar y hacer click en el botón "Continuar" del dropdown
+    # El botón tiene class="select-ages" y texto "Continuar"
+    continuar_ok = await page.evaluate("""() => {
+        const host = document.getElementById('spv-quote-latest-home');
+        if (!host || !host.shadowRoot) return 'no-host';
+        // Buscar botón Continuar dentro del dropdown
+        const btns = host.shadowRoot.querySelectorAll('button.select-ages, button[class*="select-ages"]');
+        for (const btn of btns) {
+            if (btn.offsetParent !== null) {  // visible
+                btn.click();
+                return 'continuar-clicked:' + btn.textContent.trim();
+            }
+        }
+        // Fallback: cualquier botón visible con texto Continuar
+        const allBtns = host.shadowRoot.querySelectorAll('button');
+        for (const btn of allBtns) {
+            if (btn.offsetParent !== null && btn.textContent.includes('Continuar')) {
+                btn.click();
+                return 'continuar-fallback:' + btn.textContent.trim();
+            }
+        }
+        return 'no-continuar-found';
+    }""")
+    log.info(f"  fill_ages continuar -> {continuar_ok}")
+    await page.wait_for_timeout(800)
 
-    # ── Fallback JS puro ─────────────────────────────────────────────────
+    # 3. Verificar que el dropdown se cerró
+    dropdown_open = await page.evaluate("""() => {
+        const host = document.getElementById('spv-quote-latest-home');
+        if (!host || !host.shadowRoot) return false;
+        const btns = host.shadowRoot.querySelectorAll('button.select-ages, button[class*="select-ages"]');
+        for (const btn of btns) {
+            if (btn.offsetParent !== null) return true;  // todavía visible
+        }
+        return false;
+    }""")
+
+    if dropdown_open:
+        log.warning("  fill_ages: dropdown todavía abierto — intentando Escape")
+        await page.keyboard.press('Escape')
+        await page.wait_for_timeout(500)
+    else:
+        log.info("  fill_ages: dropdown cerrado correctamente ✓")
+
+    return 'continuar' in str(continuar_ok)
+
+
+async def fill_phone_js(page, number: str):
+    """
+    Llena id=phone via JS puro con secuencia de eventos completa.
+    Usamos JS directo porque Playwright no puede hacer click
+    si hay algún elemento encima (aunque esté cerrado).
+    """
     ok = await page.evaluate("""(number) => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return 'no-host';
         const inp = host.shadowRoot.getElementById('phone');
         if (!inp) return 'no-phone';
+
+        // Forzar que el dropdown esté cerrado antes de interactuar
+        const dropdown = host.shadowRoot.querySelector('.dropdown, [class*="dropdown"]');
+        if (dropdown) dropdown.style.display = 'none';
+
+        // Limpiar y escribir el valor
         inp.focus();
+        inp.click();
+
         const nativeSet = Object.getOwnPropertyDescriptor(
             window.HTMLInputElement.prototype, 'value').set;
-        nativeSet.call(inp, number);
-        ['input', 'change', 'blur'].forEach(e =>
-            inp.dispatchEvent(new Event(e, {bubbles: true}))
-        );
+
+        // Limpiar
+        nativeSet.call(inp, '');
+        inp.dispatchEvent(new Event('input', {bubbles: true}));
+
+        // Escribir dígito por dígito
+        for (const char of number) {
+            nativeSet.call(inp, inp.value + char);
+            inp.dispatchEvent(new InputEvent('input', {
+                bubbles: true,
+                cancelable: true,
+                data: char,
+                inputType: 'insertText'
+            }));
+        }
+
+        // Eventos finales
+        inp.dispatchEvent(new Event('change', {bubbles: true}));
+        inp.dispatchEvent(new FocusEvent('blur', {bubbles: true}));
+        inp.dispatchEvent(new KeyboardEvent('keyup', {bubbles: true, key: 'Tab'}));
+
         return 'ok:' + inp.value;
     }""", number)
-    log.info(f"  phone fallback -> {ok}")
+    log.info(f"  fill_phone_js -> {ok}")
     return str(ok).startswith('ok')
-
-
-async def fill_ages_shadow(page):
-    """
-    Llena el campo ages (pasajeros) — abre dropdown y selecciona 1 persona.
-    """
-    try:
-        inp = page.locator('#spv-quote-latest-home >> #ages')
-        if await inp.is_visible(timeout=3000):
-            await inp.click()
-            await page.wait_for_timeout(800)
-            option = page.locator('#spv-quote-latest-home').locator(
-                'li, option, [role="option"]'
-            ).first
-            if await option.is_visible(timeout=2000):
-                await option.click()
-                log.info("fill_ages_shadow -> seleccionó primera opción")
-            else:
-                await inp.fill('30')
-                await inp.press('Enter')
-                log.info("fill_ages_shadow -> escribió edad 30")
-            await page.wait_for_timeout(500)
-            return True
-    except Exception as e:
-        log.warning(f"fill_ages_shadow: {e}")
-    return False
 
 
 async def dump_shadow_fields(page):
@@ -191,33 +220,53 @@ async def dump_shadow_fields(page):
 
 
 async def fill_form(page, dep: str, ret: str):
-    """Llena todos los campos usando los IDs confirmados del Run #15."""
+    """Llena todos los campos en el orden correcto."""
 
-    # ── 1. Fechas ────────────────────────────────────────────────────────
+    # ── 1. Fechas (funciona) ─────────────────────────────────────────────
     await set_shadow_date(page, 'departureDate', dep)
     await human_pause(page, 500, 1000)
     await set_shadow_date(page, 'arrivalDate', ret)
     await human_pause(page, 500, 1000)
 
-    # ── 2. Pasajeros (id=ages) ───────────────────────────────────────────
-    await fill_ages_shadow(page)
-    await page.wait_for_timeout(600)
+    # ── 2. Ages: abrir dropdown → click Continuar → cerrar ───────────────
+    await fill_ages_and_close(page)
+    await page.wait_for_timeout(800)
 
-    # ── 3. Nombre (id=fullName) ──────────────────────────────────────────
+    # ── 3. Nombre (id=fullName — funciona) ───────────────────────────────
     ok = await set_shadow_field(page, 'fullName', FORM_CONFIG['nombre'], 'input')
     log.info(f"  nombre -> {'OK' if ok else 'FAIL'}")
     await page.wait_for_timeout(400)
 
-    # ── 4. Email (id=email) ──────────────────────────────────────────────
+    # ── 4. Email (id=email — funciona) ───────────────────────────────────
     ok = await set_shadow_field(page, 'email', FORM_CONFIG['email'], 'input')
     log.info(f"  email  -> {'OK' if ok else 'FAIL'}")
     await page.wait_for_timeout(400)
 
-    # ── 5. Prefijo +57 + número (id=intl + id=phone) ─────────────────────
-    await fill_phone_shadow(page, FORM_CONFIG['cel'])
+    # ── 5. Prefijo +57 ───────────────────────────────────────────────────
+    ok_intl = await page.evaluate("""() => {
+        const host = document.getElementById('spv-quote-latest-home');
+        if (!host || !host.shadowRoot) return 'no-host';
+        const sel = host.shadowRoot.getElementById('intl');
+        if (!sel) return 'no-intl';
+        const opts = Array.from(sel.options);
+        const target = opts.find(o =>
+            o.value === '57' || o.value === '+57' ||
+            o.text.includes('57') || o.text.toLowerCase().includes('colombia')
+        );
+        if (target) sel.value = target.value;
+        else sel.selectedIndex = 1;
+        sel.dispatchEvent(new Event('change', {bubbles: true}));
+        sel.dispatchEvent(new Event('blur',   {bubbles: true}));
+        return 'ok:' + sel.value;
+    }""")
+    log.info(f"  intl prefix -> {ok_intl}")
+    await page.wait_for_timeout(400)
+
+    # ── 6. Phone: JS directo (evita problema del dropdown encima) ────────
+    await fill_phone_js(page, FORM_CONFIG['cel'])
     await page.wait_for_timeout(600)
 
-    # ── 6. Verificar validez ─────────────────────────────────────────────
+    # ── 7. Verificar validez ─────────────────────────────────────────────
     estado = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return {valid: true, invalidos: []};
@@ -259,7 +308,6 @@ async def click_cotizar(page):
 async def extract_plans(page, days):
     """Espera 'Precio hoy' y extrae planes de la página /cotizar/."""
     plans = []
-
     try:
         await page.wait_for_selector("text=Precio hoy", timeout=30000)
     except PWTimeout:
@@ -289,16 +337,12 @@ async def extract_plans(page, days):
         plan_name = plan_m.group(1)
         price_raw = re.sub(r'[^\d]', '', price_m.group(1))
         discount  = f"-{disc_m.group(1)}%" if disc_m else ''
-
         prices_all = re.findall(r'\$([\d,.]+)\s*COP', text)
         orig_raw   = re.sub(r'[^\d]', '', prices_all[1]) if len(prices_all) > 1 else ''
 
         plans.append({
-            'plan':           plan_name,
-            'price':          price_raw,
-            'original_price': orig_raw,
-            'discount':       discount,
-            'days':           days,
+            'plan': plan_name, 'price': price_raw,
+            'original_price': orig_raw, 'discount': discount, 'days': days,
         })
         log.info(f"  {days}d | {plan_name} | {price_raw} COP | {discount}")
 
@@ -319,7 +363,6 @@ async def quote_one(page, days):
 
     await page.goto(URL_HOME, wait_until='domcontentloaded', timeout=30000)
     await human_pause(page, 2000, 4000)
-
     await page.wait_for_selector("#spv-quote-latest-home", timeout=30000)
     await page.wait_for_timeout(5000)
 
@@ -330,7 +373,6 @@ async def quote_one(page, days):
     await human_pause(page, 800, 1500)
 
     await page.screenshot(path=f"debug_pre_{days}d.png", full_page=False)
-
     await click_cotizar(page)
 
     try:
@@ -342,7 +384,6 @@ async def quote_one(page, days):
 
     await page.wait_for_load_state('networkidle', timeout=20000)
     await human_pause(page, 2000, 4000)
-
     return await extract_plans(page, days)
 
 
