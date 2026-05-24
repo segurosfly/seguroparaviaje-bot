@@ -10,7 +10,7 @@ from logger import log
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
-async def human_pause(page, lo=2000, hi=5000):
+async def human_pause(page, lo=2000, hi=5000):h
     await page.wait_for_timeout(random.randint(lo, hi))
 
 
@@ -132,6 +132,8 @@ async def quote_one(page, days):
     await page.goto(URL_HOME, wait_until='domcontentloaded', timeout=30000)
     await human_pause(page, 2000, 4000)
 
+    await page.wait_for_selector("#spv-quote-latest-home", timeout=30000)
+    await page.wait_for_timeout(5000)
     await set_shadow_date(page, 'departureDate', dep)
     await human_pause(page, 500, 1200)
     await set_shadow_date(page, 'arrivalDate', ret)
