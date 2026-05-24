@@ -10,7 +10,7 @@ from logger import log
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
-async def human_pause(page, lo=2000, hi=5000):h
+async def human_pause(page, lo=2000, hi=5000):
     await page.wait_for_timeout(random.randint(lo, hi))
 
 
