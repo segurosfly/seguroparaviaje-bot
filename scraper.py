@@ -78,56 +78,59 @@ async def set_shadow_field(page, field_id, value, field_type='input'):
 
 async def fill_ages_and_close(page):
     """
-    Abre dropdown de pasajeros, incrementa +1 en el grupo '0 a 69 años'
-    (último botón visible en esa fila — el +), luego click en Continuar.
-    El dropdown tiene 4 grupos: 0-69, 70-79, 80-85, Mayor 85.
-    Continuar siempre está visible; solo hay que tener ≥1 pasajero para que procese.
+    Abre dropdown de pasajeros con Playwright locator (pierce shadow DOM),
+    clickea el primer botón + activo (grupo 0-69 años), luego Continuar.
     """
     log.info("  fill_ages: abriendo dropdown de pasajeros...")
 
-    # 1. Click en el input readonly de ages
-    opened = await page.evaluate("""() => {
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return 'no-host';
-        const inp = host.shadowRoot.getElementById('ages');
-        if (!inp) return 'no-ages';
-        inp.click();
-        inp.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-        return 'clicked';
-    }""")
-    log.info(f"  fill_ages click ages -> {opened}")
-    await page.wait_for_timeout(1000)
+    # 1. Click en ages via Playwright locator (pierce shadow DOM real)
+    ages_loc = page.locator('#spv-quote-latest-home').locator('#ages')
+    await ages_loc.click()
+    log.info("  fill_ages click ages -> clicked via locator")
+    await page.wait_for_timeout(1200)
 
-    # 2. Click en el + del grupo "0 a 69 años"
-    #    Confirmado por consola: class="active" text="+" es el primer + disponible
+    # 2. Click en el primer botón + con class="active"
+    #    Confirmado por consola DevTools: los botones activos tienen class="active"
+    #    y text="+". El primero es siempre el del grupo 0-69 años.
     plus_ok = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return 'no-host';
         const btns = Array.from(host.shadowRoot.querySelectorAll('button'));
+
+        // Buscar por class="active" y texto "+"
         const plusBtn = btns.find(b =>
             b.className === 'active' &&
-            b.textContent.trim() === '+' &&
-            b.offsetParent !== null
+            b.textContent.trim() === '+'
         );
-        if (plusBtn) { plusBtn.click(); return 'plus-active:ok'; }
-        const anyPlus = btns.find(b =>
-            b.textContent.trim() === '+' && b.offsetParent !== null
-        );
-        if (anyPlus) { anyPlus.click(); return 'plus-fallback:ok'; }
-        return 'no-plus';
+        if (plusBtn) {
+            plusBtn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+            return 'plus-active:ok';
+        }
+
+        // Fallback: cualquier botón con texto "+"
+        const anyPlus = btns.find(b => b.textContent.trim() === '+');
+        if (anyPlus) {
+            anyPlus.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+            return 'plus-fallback:ok';
+        }
+
+        const info = btns.map(b => b.textContent.trim() + '|' + b.className);
+        return 'no-plus:' + JSON.stringify(info);
     }""")
     log.info(f"  fill_ages plus -> {plus_ok}")
-    await page.wait_for_timeout(600)
+    await page.wait_for_timeout(800)
 
-    # 3. Click en Continuar
+    # 3. Click en Continuar (class="select-ages" confirmado por consola)
     continuar_ok = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return 'no-host';
-        const allBtns = host.shadowRoot.querySelectorAll('button');
-        for (const btn of allBtns) {
-            if (btn.offsetParent !== null && btn.textContent.includes('Continuar')) {
-                btn.click();
-                return 'continuar-clicked';
+        const btn = host.shadowRoot.querySelector('button.select-ages');
+        if (btn) { btn.dispatchEvent(new MouseEvent('click', {bubbles: true})); return 'continuar-clicked'; }
+        // fallback texto
+        for (const b of host.shadowRoot.querySelectorAll('button')) {
+            if (b.textContent.includes('Continuar')) {
+                b.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+                return 'continuar-fallback';
             }
         }
         return 'no-continuar-found';
@@ -139,10 +142,8 @@ async def fill_ages_and_close(page):
     dropdown_open = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return false;
-        for (const btn of host.shadowRoot.querySelectorAll('button')) {
-            if (btn.offsetParent !== null && btn.textContent.includes('Continuar')) return true;
-        }
-        return false;
+        const btn = host.shadowRoot.querySelector('button.select-ages');
+        return btn ? btn.offsetParent !== null : false;
     }""")
 
     if dropdown_open:
@@ -156,18 +157,34 @@ async def fill_ages_and_close(page):
 
 
 async def fill_phone_real(page, number):
-    phone = page.locator(
-        '#spv-quote-latest-home'
-    ).locator('#phone')
-    await phone.click()
-    await page.wait_for_timeout(500)
-    await phone.clear()
-    await page.wait_for_timeout(300)
-    await phone.type(number, delay=150)
-    await page.wait_for_timeout(1000)
-    value = await phone.input_value()
-    log.info(f"fill_phone_real -> {value}")
-    return value == number
+    """
+    Llena id=phone via JS con secuencia completa de eventos.
+    El prefijo intl debe estar seleccionado ANTES de llamar esta función.
+    Usa dispatchEvent nativo para que el framework reactive detecte el cambio.
+    """
+    ok = await page.evaluate("""(number) => {
+        const host = document.getElementById('spv-quote-latest-home');
+        if (!host || !host.shadowRoot) return 'no-host';
+        const inp = host.shadowRoot.getElementById('phone');
+        if (!inp) return 'no-phone';
+        const nativeSet = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype, 'value').set;
+        inp.focus();
+        nativeSet.call(inp, '');
+        inp.dispatchEvent(new Event('input', {bubbles: true}));
+        for (const char of number) {
+            nativeSet.call(inp, inp.value + char);
+            inp.dispatchEvent(new InputEvent('input', {
+                bubbles: true, cancelable: true,
+                data: char, inputType: 'insertText'
+            }));
+        }
+        inp.dispatchEvent(new Event('change', {bubbles: true}));
+        inp.dispatchEvent(new FocusEvent('blur', {bubbles: true}));
+        return 'ok:' + inp.value;
+    }""", number)
+    log.info(f"fill_phone_real -> {ok}")
+    return str(ok).startswith('ok')
 
 
 async def dump_shadow_fields(page):
