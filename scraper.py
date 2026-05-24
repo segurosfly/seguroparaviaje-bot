@@ -88,6 +88,8 @@ async def fill_ages_and_close(page):
     await ages_loc.click()
     log.info("  fill_ages click ages -> clicked via locator")
     await page.wait_for_timeout(1200)
+    await page.screenshot(path="debug_01_ages_clicked.png")
+    log.info("  screenshot: debug_01_ages_clicked.png")
 
     # 2. Click en el primer botón + con class="active"
     #    Confirmado por consola DevTools: los botones activos tienen class="active"
@@ -119,6 +121,8 @@ async def fill_ages_and_close(page):
     }""")
     log.info(f"  fill_ages plus -> {plus_ok}")
     await page.wait_for_timeout(800)
+    await page.screenshot(path="debug_02_after_plus.png")
+    log.info("  screenshot: debug_02_after_plus.png")
 
     # 3. Click en Continuar (class="select-ages" confirmado por consola)
     continuar_ok = await page.evaluate("""() => {
@@ -137,6 +141,8 @@ async def fill_ages_and_close(page):
     }""")
     log.info(f"  fill_ages continuar -> {continuar_ok}")
     await page.wait_for_timeout(800)
+    await page.screenshot(path="debug_03_after_continuar.png")
+    log.info("  screenshot: debug_03_after_continuar.png")
 
     # 4. Verificar cierre
     dropdown_open = await page.evaluate("""() => {
@@ -272,6 +278,8 @@ async def fill_form(page, dep: str, ret: str):
     }""")
     log.info(f"  Formulario válido: {estado['valid']} | "
              f"Inválidos: {estado['invalidos']}")
+    await page.screenshot(path="debug_04_form_complete.png")
+    log.info("  screenshot: debug_04_form_complete.png")
     return estado.get('valid', True)
 
 
