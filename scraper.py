@@ -9,7 +9,6 @@ from logger import log
 
 
 # ── Datos fijos de cotización ───────────────────────────────────────────────
-# Ajusta estos valores según tu cotización estándar
 FORM_CONFIG = {
     "nombre": "Nirvia",
     "email":  "Nirviagonza@hotmail.com",
@@ -45,40 +44,31 @@ async def set_shadow_date(page, field_id, iso_date):
 
 
 async def set_shadow_field(page, field_id, value, field_type='input'):
-    """
-    Llena un campo de texto dentro del shadow DOM de #spv-quote-latest-home.
-    field_type: 'input' | 'select'
-    """
+    """Llena un campo dentro del shadow DOM disparando todos los eventos necesarios."""
     ok = await page.evaluate(
         """([fid, val, ftype]) => {
             const host = document.getElementById('spv-quote-latest-home');
             if (!host || !host.shadowRoot) return 'no-host';
-            const el = host.shadowRoot.getElementById(fid);
-            if (!el) {
-                // Intentar por name o por tipo
-                const byName = host.shadowRoot.querySelector('[name="' + fid + '"]');
-                if (!byName) return 'no-field:' + fid;
-                el = byName;
-            }
+            let el = host.shadowRoot.getElementById(fid);
+            if (!el) return 'no-field:' + fid;
+
             if (ftype === 'select') {
-                // Seleccionar opción por texto visible
                 const opts = Array.from(el.options);
                 const target = opts.find(o =>
                     o.text.toLowerCase().includes(val.toLowerCase())
                 );
-                if (target) {
-                    el.value = target.value;
-                } else {
-                    el.selectedIndex = 1; // primera opción válida
-                }
+                if (target) el.value = target.value;
+                else el.selectedIndex = 1;
             } else {
+                el.focus();
                 const nativeSet = Object.getOwnPropertyDescriptor(
                     window.HTMLInputElement.prototype, 'value').set;
                 nativeSet.call(el, val);
             }
-            el.dispatchEvent(new Event('input',  {bubbles: true}));
-            el.dispatchEvent(new Event('change', {bubbles: true}));
-            el.dispatchEvent(new Event('blur',   {bubbles: true}));
+            ['focus', 'input', 'change', 'blur'].forEach(evName => {
+                el.dispatchEvent(new Event(evName, {bubbles: true, cancelable: true}));
+            });
+            el.dispatchEvent(new KeyboardEvent('keyup', {bubbles: true}));
             return 'ok:' + el.value;
         }""",
         [field_id, value, field_type]
@@ -87,17 +77,99 @@ async def set_shadow_field(page, field_id, value, field_type='input'):
     return str(ok).startswith('ok')
 
 
+async def fill_phone_shadow(page, number: str):
+    """
+    Llena el prefijo +57 (select id=intl) y el número (input id=phone).
+    El select ya viene con Colombia por defecto pero hay que disparar
+    el evento change para que el componente lo considere válido.
+    """
+    # ── 1. Activar prefijo +57 (id=intl — confirmado en dump Run #15) ───
+    ok_intl = await page.evaluate("""() => {
+        const host = document.getElementById('spv-quote-latest-home');
+        if (!host || !host.shadowRoot) return 'no-host';
+        const sel = host.shadowRoot.getElementById('intl');
+        if (!sel) return 'no-intl';
+        const opts = Array.from(sel.options);
+        const target = opts.find(o =>
+            o.value === '57' || o.value === '+57' ||
+            o.text.includes('57') ||
+            o.text.toLowerCase().includes('colombia')
+        );
+        if (target) sel.value = target.value;
+        else sel.selectedIndex = 1;
+        sel.dispatchEvent(new Event('change', {bubbles: true}));
+        sel.dispatchEvent(new Event('blur',   {bubbles: true}));
+        return 'ok:' + sel.value;
+    }""")
+    log.info(f"  intl prefix -> {ok_intl}")
+    await page.wait_for_timeout(400)
+
+    # ── 2. Tipeo real del número con Playwright (pierce shadow DOM) ──────
+    try:
+        inp = page.locator('#spv-quote-latest-home >> #phone')
+        await inp.click()
+        await page.wait_for_timeout(300)
+        await inp.triple_click()
+        await inp.type(number, delay=80)
+        await inp.press('Tab')
+        await page.wait_for_timeout(400)
+        val = await inp.input_value()
+        log.info(f"  phone number -> ok:{val}")
+        return True
+    except Exception as e:
+        log.warning(f"  phone playwright failed: {e}")
+
+    # ── Fallback JS puro ─────────────────────────────────────────────────
+    ok = await page.evaluate("""(number) => {
+        const host = document.getElementById('spv-quote-latest-home');
+        if (!host || !host.shadowRoot) return 'no-host';
+        const inp = host.shadowRoot.getElementById('phone');
+        if (!inp) return 'no-phone';
+        inp.focus();
+        const nativeSet = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype, 'value').set;
+        nativeSet.call(inp, number);
+        ['input', 'change', 'blur'].forEach(e =>
+            inp.dispatchEvent(new Event(e, {bubbles: true}))
+        );
+        return 'ok:' + inp.value;
+    }""", number)
+    log.info(f"  phone fallback -> {ok}")
+    return str(ok).startswith('ok')
+
+
+async def fill_ages_shadow(page):
+    """
+    Llena el campo ages (pasajeros) — abre dropdown y selecciona 1 persona.
+    """
+    try:
+        inp = page.locator('#spv-quote-latest-home >> #ages')
+        if await inp.is_visible(timeout=3000):
+            await inp.click()
+            await page.wait_for_timeout(800)
+            option = page.locator('#spv-quote-latest-home').locator(
+                'li, option, [role="option"]'
+            ).first
+            if await option.is_visible(timeout=2000):
+                await option.click()
+                log.info("fill_ages_shadow -> seleccionó primera opción")
+            else:
+                await inp.fill('30')
+                await inp.press('Enter')
+                log.info("fill_ages_shadow -> escribió edad 30")
+            await page.wait_for_timeout(500)
+            return True
+    except Exception as e:
+        log.warning(f"fill_ages_shadow: {e}")
+    return False
+
+
 async def dump_shadow_fields(page):
-    """
-    Diagnóstico: lista todos los campos dentro del shadow DOM.
-    Útil para identificar IDs exactos si algo falla.
-    """
+    """Diagnóstico: lista todos los campos del shadow DOM."""
     fields = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return [];
-        const els = host.shadowRoot.querySelectorAll(
-            'input, select, textarea, button'
-        );
+        const els = host.shadowRoot.querySelectorAll('input, select, textarea, button');
         return Array.from(els).map(el => ({
             tag:         el.tagName,
             id:          el.id || '',
@@ -119,166 +191,49 @@ async def dump_shadow_fields(page):
 
 
 async def fill_form(page, dep: str, ret: str):
-    """
-    Llena TODOS los campos del formulario de cotización.
-    Estrategia: primero intenta por ID dentro del shadow DOM,
-    luego fallback por selectores en el DOM principal.
-    """
+    """Llena todos los campos usando los IDs confirmados del Run #15."""
 
-    # ── 1. Origen (select) ──────────────────────────────────────────────
-    # IDs comunes del componente SPV: 'origin', 'origen', 'countryOrigin'
-    for fid in ['origin', 'origen', 'countryOrigin', 'country-origin']:
-        ok = await set_shadow_field(page, fid, 'Colombia', 'select')
-        if ok:
-            log.info("  [OK] origen -> Colombia")
-            break
-    else:
-        # Fallback DOM principal
-        for sel in ["select[name*='origin']", "select[id*='origin']",
-                    "select[name*='origen']", "select[id*='origen']"]:
-            try:
-                el = page.locator(sel).first
-                if await el.is_visible(timeout=2000):
-                    await el.select_option(label='Colombia')
-                    log.info(f"  [OK] origen DOM fallback -> {sel}")
-                    break
-            except Exception:
-                continue
-    await page.wait_for_timeout(500)
-
-    # ── 2. Destino (select) ─────────────────────────────────────────────
-    for fid in ['destination', 'destino', 'countryDest', 'country-dest']:
-        ok = await set_shadow_field(page, fid, 'Europa', 'select')
-        if ok:
-            log.info("  [OK] destino -> Europa")
-            break
-    else:
-        for sel in ["select[name*='dest']", "select[id*='dest']",
-                    "select[name*='region']", "select[id*='region']"]:
-            try:
-                el = page.locator(sel).first
-                if await el.is_visible(timeout=2000):
-                    await el.select_option(label='Europa')
-                    log.info(f"  [OK] destino DOM fallback -> {sel}")
-                    break
-            except Exception:
-                continue
-    await page.wait_for_timeout(500)
-
-    # ── 3. Fechas (shadow DOM — ya funciona) ────────────────────────────
+    # ── 1. Fechas ────────────────────────────────────────────────────────
     await set_shadow_date(page, 'departureDate', dep)
-    await human_pause(page, 500, 1200)
+    await human_pause(page, 500, 1000)
     await set_shadow_date(page, 'arrivalDate', ret)
-    await human_pause(page, 800, 1500)
+    await human_pause(page, 500, 1000)
 
-    # ── 4. Pasajeros (select) ───────────────────────────────────────────
-    for fid in ['passengers', 'pasajeros', 'travelers', 'pax']:
-        ok = await set_shadow_field(page, fid, '1', 'select')
-        if ok:
-            log.info("  [OK] pasajeros -> 1")
-            break
+    # ── 2. Pasajeros (id=ages) ───────────────────────────────────────────
+    await fill_ages_shadow(page)
+    await page.wait_for_timeout(600)
+
+    # ── 3. Nombre (id=fullName) ──────────────────────────────────────────
+    ok = await set_shadow_field(page, 'fullName', FORM_CONFIG['nombre'], 'input')
+    log.info(f"  nombre -> {'OK' if ok else 'FAIL'}")
     await page.wait_for_timeout(400)
 
-    # ── 5. Nombre ───────────────────────────────────────────────────────
-    nombre_ok = False
-    for fid in ['nombre', 'name', 'firstName', 'first-name', 'fullName']:
-        ok = await set_shadow_field(page, fid, FORM_CONFIG['nombre'], 'input')
-        if ok:
-            log.info(f"  [OK] nombre -> {FORM_CONFIG['nombre']}")
-            nombre_ok = True
-            break
-    if not nombre_ok:
-        for sel in ["input[name*='nombre']", "input[id*='nombre']",
-                    "input[name*='name']", "input[placeholder*='Nombre']",
-                    "input[placeholder*='nombre']"]:
-            try:
-                el = page.locator(sel).first
-                if await el.is_visible(timeout=2000):
-                    await el.fill(FORM_CONFIG['nombre'])
-                    log.info(f"  [OK] nombre DOM fallback -> {sel}")
-                    nombre_ok = True
-                    break
-            except Exception:
-                continue
+    # ── 4. Email (id=email) ──────────────────────────────────────────────
+    ok = await set_shadow_field(page, 'email', FORM_CONFIG['email'], 'input')
+    log.info(f"  email  -> {'OK' if ok else 'FAIL'}")
     await page.wait_for_timeout(400)
 
-    # ── 6. Email ────────────────────────────────────────────────────────
-    email_ok = False
-    for fid in ['email', 'correo', 'mail', 'emailAddress']:
-        ok = await set_shadow_field(page, fid, FORM_CONFIG['email'], 'input')
-        if ok:
-            log.info(f"  [OK] email -> {FORM_CONFIG['email']}")
-            email_ok = True
-            break
-    if not email_ok:
-        for sel in ["input[type='email']", "input[name*='email']",
-                    "input[id*='email']", "input[placeholder*='mail']"]:
-            try:
-                el = page.locator(sel).first
-                if await el.is_visible(timeout=2000):
-                    await el.fill(FORM_CONFIG['email'])
-                    log.info(f"  [OK] email DOM fallback -> {sel}")
-                    email_ok = True
-                    break
-            except Exception:
-                continue
-    await page.wait_for_timeout(400)
+    # ── 5. Prefijo +57 + número (id=intl + id=phone) ─────────────────────
+    await fill_phone_shadow(page, FORM_CONFIG['cel'])
+    await page.wait_for_timeout(600)
 
-    # ── 7. Celular ──────────────────────────────────────────────────────
-    cel_ok = False
-    for fid in ['cel', 'phone', 'telefono', 'celular', 'mobile', 'phoneNumber']:
-        ok = await set_shadow_field(page, fid, FORM_CONFIG['cel'], 'input')
-        if ok:
-            log.info(f"  [OK] cel -> {FORM_CONFIG['cel']}")
-            cel_ok = True
-            break
-    if not cel_ok:
-        for sel in ["input[type='tel']", "input[name*='cel']",
-                    "input[name*='phone']", "input[placeholder*='Cel']",
-                    "input[placeholder*='celular']"]:
-            try:
-                el = page.locator(sel).first
-                if await el.is_visible(timeout=2000):
-                    await el.fill(FORM_CONFIG['cel'])
-                    log.info(f"  [OK] cel DOM fallback -> {sel}")
-                    cel_ok = True
-                    break
-            except Exception:
-                continue
-    await page.wait_for_timeout(400)
-
-    # ── 8. Verificar validez del formulario ─────────────────────────────
+    # ── 6. Verificar validez ─────────────────────────────────────────────
     estado = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) {
-            // Verificar formulario normal
-            const form = document.querySelector('form');
-            if (!form) return {valid: true, invalidos: []};
-            const inv = Array.from(form.elements)
-                .filter(el => el.willValidate && !el.checkValidity())
-                .map(el => el.id || el.name || el.placeholder || el.type);
-            return {valid: form.checkValidity(), invalidos: inv};
-        }
-        // Verificar dentro del shadow DOM
+        if (!host || !host.shadowRoot) return {valid: true, invalidos: []};
         const inputs = host.shadowRoot.querySelectorAll('input, select');
         const inv = Array.from(inputs)
             .filter(el => el.willValidate && !el.checkValidity())
-            .map(el => ({
-                id: el.id,
-                name: el.name,
-                msg: el.validationMessage,
-                value: el.value,
-            }));
+            .map(el => ({id: el.id, msg: el.validationMessage, value: el.value}));
         return {valid: inv.length === 0, invalidos: inv};
     }""")
     log.info(f"  Formulario válido: {estado['valid']} | "
-             f"Campos inválidos: {estado['invalidos']}")
-
+             f"Inválidos: {estado['invalidos']}")
     return estado.get('valid', True)
 
 
 async def click_cotizar(page):
-    """Click 'Cotiza Gratis' button — pierce shadow DOM."""
+    """Click 'Cotiza Gratis' — pierce shadow DOM."""
     try:
         btn = page.locator('#spv-quote-latest-home').locator('#btn-quote')
         await btn.click(timeout=10000)
@@ -287,7 +242,6 @@ async def click_cotizar(page):
     except Exception as e:
         log.error(f"click_cotizar locator failed: {e}")
 
-    # Fallback JS
     ok = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return 'no-host';
@@ -303,9 +257,7 @@ async def click_cotizar(page):
 # ── extraction ──────────────────────────────────────────────────────────────
 
 async def extract_plans(page, days):
-    """
-    En la página /cotizar/ espera 'Precio hoy' y extrae planes.
-    """
+    """Espera 'Precio hoy' y extrae planes de la página /cotizar/."""
     plans = []
 
     try:
@@ -360,37 +312,27 @@ async def extract_plans(page, days):
 # ── single quote ────────────────────────────────────────────────────────────
 
 async def quote_one(page, days):
-    """Navega al home, llena TODO el formulario, cotiza y extrae."""
+    """Navega al home, llena todo el formulario, cotiza y extrae."""
     dep = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
     ret = (datetime.now() + timedelta(days=30 + days)).strftime('%Y-%m-%d')
     log.info(f"=== Quote {days}d | {dep} -> {ret} ===")
 
-    # Reload limpio para cada cotización
     await page.goto(URL_HOME, wait_until='domcontentloaded', timeout=30000)
     await human_pause(page, 2000, 4000)
 
-    # Esperar que el componente shadow DOM esté listo
     await page.wait_for_selector("#spv-quote-latest-home", timeout=30000)
     await page.wait_for_timeout(5000)
 
-    # Diagnóstico en primer run (opcional — comenta en producción)
     if days == 10:
         await dump_shadow_fields(page)
 
-    # Llenar TODOS los campos del formulario
-    form_valid = await fill_form(page, dep, ret)
-    if not form_valid:
-        log.warning(f"  Formulario con campos inválidos — igualmente intentando cotizar")
-
+    await fill_form(page, dep, ret)
     await human_pause(page, 800, 1500)
 
-    # Screenshot pre-click para debug
     await page.screenshot(path=f"debug_pre_{days}d.png", full_page=False)
 
-    # Click cotizar
     await click_cotizar(page)
 
-    # Esperar navegación a /cotizar/
     try:
         await page.wait_for_url('**/cotizar/**', timeout=20000)
         log.info(f"  Navegó a: {page.url}")
