@@ -78,13 +78,14 @@ async def set_shadow_field(page, field_id, value, field_type='input'):
 
 async def fill_ages_and_close(page):
     """
-    El campo ages (id=ages, readonly) abre un dropdown al hacer click.
-    El dropdown tiene un botón 'Continuar' (class=select-ages) que lo cierra.
-    Secuencia: click en ages → esperar dropdown → click en Continuar → cerrado.
+    Abre dropdown de pasajeros, incrementa +1 en el grupo '0 a 69 años'
+    (último botón visible en esa fila — el +), luego click en Continuar.
+    El dropdown tiene 4 grupos: 0-69, 70-79, 80-85, Mayor 85.
+    Continuar siempre está visible; solo hay que tener ≥1 pasajero para que procese.
     """
     log.info("  fill_ages: abriendo dropdown de pasajeros...")
 
-    # 1. Click en el input readonly de ages para abrir el dropdown
+    # 1. Click en el input readonly de ages
     opened = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return 'no-host';
@@ -97,25 +98,36 @@ async def fill_ages_and_close(page):
     log.info(f"  fill_ages click ages -> {opened}")
     await page.wait_for_timeout(1000)
 
-    # 2. Esperar y hacer click en el botón "Continuar" del dropdown
-    # El botón tiene class="select-ages" y texto "Continuar"
+    # 2. Click en el + del grupo "0 a 69 años"
+    #    Confirmado por consola: class="active" text="+" es el primer + disponible
+    plus_ok = await page.evaluate("""() => {
+        const host = document.getElementById('spv-quote-latest-home');
+        if (!host || !host.shadowRoot) return 'no-host';
+        const btns = Array.from(host.shadowRoot.querySelectorAll('button'));
+        const plusBtn = btns.find(b =>
+            b.className === 'active' &&
+            b.textContent.trim() === '+' &&
+            b.offsetParent !== null
+        );
+        if (plusBtn) { plusBtn.click(); return 'plus-active:ok'; }
+        const anyPlus = btns.find(b =>
+            b.textContent.trim() === '+' && b.offsetParent !== null
+        );
+        if (anyPlus) { anyPlus.click(); return 'plus-fallback:ok'; }
+        return 'no-plus';
+    }""")
+    log.info(f"  fill_ages plus -> {plus_ok}")
+    await page.wait_for_timeout(600)
+
+    # 3. Click en Continuar
     continuar_ok = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return 'no-host';
-        // Buscar botón Continuar dentro del dropdown
-        const btns = host.shadowRoot.querySelectorAll('button.select-ages, button[class*="select-ages"]');
-        for (const btn of btns) {
-            if (btn.offsetParent !== null) {  // visible
-                btn.click();
-                return 'continuar-clicked:' + btn.textContent.trim();
-            }
-        }
-        // Fallback: cualquier botón visible con texto Continuar
         const allBtns = host.shadowRoot.querySelectorAll('button');
         for (const btn of allBtns) {
             if (btn.offsetParent !== null && btn.textContent.includes('Continuar')) {
                 btn.click();
-                return 'continuar-fallback:' + btn.textContent.trim();
+                return 'continuar-clicked';
             }
         }
         return 'no-continuar-found';
@@ -123,13 +135,12 @@ async def fill_ages_and_close(page):
     log.info(f"  fill_ages continuar -> {continuar_ok}")
     await page.wait_for_timeout(800)
 
-    # 3. Verificar que el dropdown se cerró
+    # 4. Verificar cierre
     dropdown_open = await page.evaluate("""() => {
         const host = document.getElementById('spv-quote-latest-home');
         if (!host || !host.shadowRoot) return false;
-        const btns = host.shadowRoot.querySelectorAll('button.select-ages, button[class*="select-ages"]');
-        for (const btn of btns) {
-            if (btn.offsetParent !== null) return true;  // todavía visible
+        for (const btn of host.shadowRoot.querySelectorAll('button')) {
+            if (btn.offsetParent !== null && btn.textContent.includes('Continuar')) return true;
         }
         return false;
     }""")
