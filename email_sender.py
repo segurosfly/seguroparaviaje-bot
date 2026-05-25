@@ -54,8 +54,8 @@ def send_report(records, changes):
     html = (
         '<html><body style="font-family:Arial,sans-serif;max-width:700px;">'
         '<div style="background:#1a365d;color:white;padding:16px;border-radius:6px 6px 0 0;">'
-        '<h2 style="margin:0">SPV Intelligence — ' + fecha + '</h2>'
-        '<p style="margin:4px 0 0">Colombia -> Europa | ' + str(ok) + ' planes | ' + status + '</p>'
+        '<h2 style="margin:0">Segurosfly Bot — ' + fecha + '</h2>'
+        '<p style="margin:4px 0 0">Colombia -> Europa y Mediterraneo | ' + str(ok) + ' planes | ' + status + '</p>'
         '</div>'
         '<h3 style="color:#1a365d">Precios del dia</h3>'
         '<table style="width:100%;border-collapse:collapse;font-size:14px;">'
@@ -71,13 +71,13 @@ def send_report(records, changes):
         '<h3 style="color:#1a365d">Cambios detectados</h3>'
         '<ul>' + changes_html + '</ul>'
         '<p style="color:#888;font-size:12px;margin-top:24px">'
-        'Generado automaticamente por SPV Intelligence Bot via GitHub Actions'
+        'Generado automaticamente por Segurosfly Bot via GitHub Actions'
         '</p>'
         '</body></html>'
     )
 
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = '[SPV Bot] Reporte ' + fecha + ' | ' + str(ok) + ' planes | ' + status
+    msg['Subject'] = '[Segurosfly Bot] Reporte ' + fecha + ' | ' + str(ok) + ' planes | ' + status
     msg['From']    = EMAIL_USER
     msg['To']      = EMAIL_TO
     msg.attach(MIMEText(html, 'html'))

@@ -4,316 +4,144 @@ import re
 from datetime import datetime, timedelta
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 
-from config import URL_HOME, HEADLESS, UA
+from config import URL_HOME, HEADLESS, UA, USER_EMAIL, USER_PHONE
 from logger import log
 
+# ── Configuración ────────────────────────────────────────────────────────────
+RESULTS_URL_PATTERN = "**/cotizar/plans/**"
 
-# ── Datos fijos de cotización ───────────────────────────────────────────────
+from config import USER_EMAIL, USER_PHONE
+
 FORM_CONFIG = {
-    "nombre": "Nirvia",
-    "email":  "Nirviagonza@hotmail.com",
-    "cel":    "3022500760",
+    "email": USER_EMAIL,
+    "cel":   USER_PHONE,
 }
 
 
-# ── helpers ─────────────────────────────────────────────────────────────────
+# ── helpers ──────────────────────────────────────────────────────────────────
 
 async def human_pause(page, lo=2000, hi=5000):
     await page.wait_for_timeout(random.randint(lo, hi))
 
 
-async def set_shadow_date(page, field_id, iso_date):
-    """Set #departureDate / #arrivalDate inside SPV-QUOTE shadow DOM via JS."""
-    ok = await page.evaluate(
-        """([fid, val]) => {
-            const host = document.getElementById('spv-quote-latest-home');
-            if (!host || !host.shadowRoot) return 'no-host';
-            const inp = host.shadowRoot.getElementById(fid);
-            if (!inp) return 'no-input:' + fid;
-            const nativeSet = Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype, 'value').set;
-            nativeSet.call(inp, val);
-            inp.dispatchEvent(new Event('input',  {bubbles: true}));
-            inp.dispatchEvent(new Event('change', {bubbles: true}));
-            return 'ok:' + inp.value;
-        }""",
-        [field_id, iso_date]
-    )
-    log.info(f"set_shadow_date({field_id}, {iso_date}) -> {ok}")
-    return str(ok).startswith('ok')
+# ── Pasos del formulario ──────────────────────────────────────────────────────
 
+async def select_destination(page):
+    """Índice 2 = DESTINO. Escribe 'Europa' y elige 'Europa y Mediterraneo'."""
+    log.info("  destino: abriendo selector...")
 
-async def set_shadow_field(page, field_id, value, field_type='input'):
-    """Llena un campo dentro del shadow DOM disparando todos los eventos."""
-    ok = await page.evaluate(
-        """([fid, val, ftype]) => {
-            const host = document.getElementById('spv-quote-latest-home');
-            if (!host || !host.shadowRoot) return 'no-host';
-            let el = host.shadowRoot.getElementById(fid);
-            if (!el) return 'no-field:' + fid;
-            if (ftype === 'select') {
-                const opts = Array.from(el.options);
-                const target = opts.find(o =>
-                    o.text.toLowerCase().includes(val.toLowerCase())
-                );
-                if (target) el.value = target.value;
-                else el.selectedIndex = 1;
-            } else {
-                el.focus();
-                const nativeSet = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'value').set;
-                nativeSet.call(el, val);
-            }
-            ['focus', 'input', 'change', 'blur'].forEach(evName => {
-                el.dispatchEvent(new Event(evName, {bubbles: true, cancelable: true}));
-            });
-            el.dispatchEvent(new KeyboardEvent('keyup', {bubbles: true}));
-            return 'ok:' + el.value;
-        }""",
-        [field_id, value, field_type]
-    )
-    log.info(f"set_shadow_field({field_id}) -> {ok}")
-    return str(ok).startswith('ok')
+    segments = page.locator(".sf-searchbar__segment")
+    await segments.nth(2).click()
+    await page.wait_for_timeout(1000)
 
-
-async def fill_ages_and_close(page):
-    """
-    Abre dropdown de pasajeros con Playwright locator (pierce shadow DOM),
-    clickea el primer botón + activo (grupo 0-69 años), luego Continuar.
-    """
-    log.info("  fill_ages: abriendo dropdown de pasajeros...")
-
-    # 1. Click en ages via Playwright locator (pierce shadow DOM real)
-    ages_loc = page.locator('#spv-quote-latest-home').locator('#ages')
-    await ages_loc.click()
-    log.info("  fill_ages click ages -> clicked via locator")
-    await page.wait_for_timeout(1200)
-    await page.screenshot(path="debug_01_ages_clicked.png")
-    log.info("  screenshot: debug_01_ages_clicked.png")
-
-    # 2. Click en el primer botón + con class="active"
-    #    Confirmado por consola DevTools: los botones activos tienen class="active"
-    #    y text="+". El primero es siempre el del grupo 0-69 años.
-    plus_ok = await page.evaluate("""() => {
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return 'no-host';
-        const btns = Array.from(host.shadowRoot.querySelectorAll('button'));
-
-        // Buscar por class="active" y texto "+"
-        const plusBtn = btns.find(b =>
-            b.className === 'active' &&
-            b.textContent.trim() === '+'
-        );
-        if (plusBtn) {
-            plusBtn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-            return 'plus-active:ok';
-        }
-
-        // Fallback: cualquier botón con texto "+"
-        const anyPlus = btns.find(b => b.textContent.trim() === '+');
-        if (anyPlus) {
-            anyPlus.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-            return 'plus-fallback:ok';
-        }
-
-        const info = btns.map(b => b.textContent.trim() + '|' + b.className);
-        return 'no-plus:' + JSON.stringify(info);
-    }""")
-    log.info(f"  fill_ages plus -> {plus_ok}")
+    inp = page.locator(".react-select__input input")
+    await inp.fill("Europa")
     await page.wait_for_timeout(800)
-    await page.screenshot(path="debug_02_after_plus.png")
-    log.info("  screenshot: debug_02_after_plus.png")
 
-    # 3. Click en Continuar (class="select-ages" confirmado por consola)
-    continuar_ok = await page.evaluate("""() => {
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return 'no-host';
-        const btn = host.shadowRoot.querySelector('button.select-ages');
-        if (btn) { btn.dispatchEvent(new MouseEvent('click', {bubbles: true})); return 'continuar-clicked'; }
-        // fallback texto
-        for (const b of host.shadowRoot.querySelectorAll('button')) {
-            if (b.textContent.includes('Continuar')) {
-                b.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-                return 'continuar-fallback';
-            }
-        }
-        return 'no-continuar-found';
-    }""")
-    log.info(f"  fill_ages continuar -> {continuar_ok}")
+    option = page.locator(".react-select__option", has_text="Europa y Mediterraneo")
+    try:
+        await option.first.click(timeout=8000)
+        log.info("  destino -> Europa y Mediterraneo ✓")
+        return True
+    except PWTimeout:
+        opts = await page.locator(".react-select__option").all()
+        if opts:
+            await opts[0].click()
+            log.info("  destino -> opción fallback ✓")
+            return True
+        log.error("  destino -> ninguna opción encontrada")
+        return False
+
+
+async def set_dates(page, dep: str, ret: str):
+    """Abre FECHAS y selecciona el preset que coincide con los días."""
+    dep_dt = datetime.strptime(dep, '%Y-%m-%d')
+    ret_dt = datetime.strptime(ret, '%Y-%m-%d')
+    days   = (ret_dt - dep_dt).days
+    log.info(f"  fechas: {dep} -> {ret} ({days}d)")
+
+    dates_seg = page.locator(".sf-searchbar__segment--dates")
+    await dates_seg.click()
     await page.wait_for_timeout(800)
-    await page.screenshot(path="debug_03_after_continuar.png")
-    log.info("  screenshot: debug_03_after_continuar.png")
 
-    # 4. Verificar cierre
-    dropdown_open = await page.evaluate("""() => {
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return false;
-        const btn = host.shadowRoot.querySelector('button.select-ages');
-        return btn ? btn.offsetParent !== null : false;
-    }""")
-
-    if dropdown_open:
-        log.warning("  fill_ages: dropdown todavía abierto — intentando Escape")
-        await page.keyboard.press('Escape')
-        await page.wait_for_timeout(500)
+    # Buscar preset exacto por texto
+    preset_btn = page.locator(".sf-preset-btn", has_text=str(days))
+    if await preset_btn.count() > 0:
+        await preset_btn.first.click(timeout=5000)
+        log.info(f"  fechas: preset {days}d ✓")
     else:
-        log.info("  fill_ages: dropdown cerrado correctamente ✓")
+        # Sin preset exacto: intentar inputs de fecha directos
+        log.info(f"  fechas: sin preset exacto — usando inputs directos")
+        date_inputs = await page.locator("input[type='date']").all()
+        if len(date_inputs) >= 2:
+            await date_inputs[0].fill(dep)
+            await date_inputs[1].fill(ret)
+            log.info(f"  fechas: inputs llenados ✓")
+        else:
+            log.error(f"  fechas: no se encontró preset ni inputs para {days}d")
 
-    return 'continuar' in str(continuar_ok)
-
-
-async def fill_phone_real(page, number):
-    """
-    Llena id=phone via JS con secuencia completa de eventos.
-    El prefijo intl debe estar seleccionado ANTES de llamar esta función.
-    Usa dispatchEvent nativo para que el framework reactive detecte el cambio.
-    """
-    ok = await page.evaluate("""(number) => {
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return 'no-host';
-        const inp = host.shadowRoot.getElementById('phone');
-        if (!inp) return 'no-phone';
-        const nativeSet = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype, 'value').set;
-        inp.focus();
-        nativeSet.call(inp, '');
-        inp.dispatchEvent(new Event('input', {bubbles: true}));
-        for (const char of number) {
-            nativeSet.call(inp, inp.value + char);
-            inp.dispatchEvent(new InputEvent('input', {
-                bubbles: true, cancelable: true,
-                data: char, inputType: 'insertText'
-            }));
-        }
-        inp.dispatchEvent(new Event('change', {bubbles: true}));
-        inp.dispatchEvent(new FocusEvent('blur', {bubbles: true}));
-        return 'ok:' + inp.value;
-    }""", number)
-    log.info(f"fill_phone_real -> {ok}")
-    return str(ok).startswith('ok')
-
-
-async def dump_shadow_fields(page):
-    """Diagnóstico: lista todos los campos del shadow DOM."""
-    fields = await page.evaluate("""() => {
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return [];
-        const els = host.shadowRoot.querySelectorAll('input, select, textarea, button');
-        return Array.from(els).map(el => ({
-            tag:         el.tagName,
-            id:          el.id || '',
-            name:        el.name || '',
-            type:        el.type || '',
-            placeholder: el.placeholder || '',
-            value:       el.value || '',
-            visible:     el.offsetParent !== null,
-        }));
-    }""")
-    log.info("── Shadow DOM fields ──────────────────────────────")
-    for f in fields:
-        if f['visible']:
-            log.info(f"  [{f['tag']}] id={f['id']} name={f['name']} "
-                     f"type={f['type']} placeholder='{f['placeholder']}' "
-                     f"value='{f['value']}'")
-    log.info("───────────────────────────────────────────────────")
-    return fields
-
-
-async def fill_form(page, dep: str, ret: str):
-    """Llena todos los campos en el orden correcto."""
-
-    # ── 1. Fechas (funciona) ─────────────────────────────────────────────
-    await set_shadow_date(page, 'departureDate', dep)
-    await human_pause(page, 500, 1000)
-    await set_shadow_date(page, 'arrivalDate', ret)
-    await human_pause(page, 500, 1000)
-
-    # ── 2. Ages: abrir dropdown → click Continuar → cerrar ───────────────
-    await fill_ages_and_close(page)
-    await page.wait_for_timeout(800)
-
-    # ── 3. Nombre (id=fullName — funciona) ───────────────────────────────
-    ok = await set_shadow_field(page, 'fullName', FORM_CONFIG['nombre'], 'input')
-    log.info(f"  nombre -> {'OK' if ok else 'FAIL'}")
-    await page.wait_for_timeout(400)
-
-    # ── 4. Email (id=email — funciona) ───────────────────────────────────
-    ok = await set_shadow_field(page, 'email', FORM_CONFIG['email'], 'input')
-    log.info(f"  email  -> {'OK' if ok else 'FAIL'}")
-    await page.wait_for_timeout(400)
-
-    # ── 5. Prefijo +57 ───────────────────────────────────────────────────
-    ok_intl = await page.evaluate("""() => {
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return 'no-host';
-        const sel = host.shadowRoot.getElementById('intl');
-        if (!sel) return 'no-intl';
-        const opts = Array.from(sel.options);
-        const target = opts.find(o =>
-            o.value === '57' || o.value === '+57' ||
-            o.text.includes('57') || o.text.toLowerCase().includes('colombia')
-        );
-        if (target) sel.value = target.value;
-        else sel.selectedIndex = 1;
-        sel.dispatchEvent(new Event('change', {bubbles: true}));
-        sel.dispatchEvent(new Event('blur',   {bubbles: true}));
-        return 'ok:' + sel.value;
-    }""")
-    log.info(f"  intl prefix -> {ok_intl}")
-    await page.wait_for_timeout(400)
-
-    # ── 6. Phone: JS directo (evita problema del dropdown encima) ────────
-    await fill_phone_real(page, FORM_CONFIG['cel'])
     await page.wait_for_timeout(600)
 
-    # ── 7. Verificar validez ─────────────────────────────────────────────
-    estado = await page.evaluate("""() => {
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return {valid: true, invalidos: []};
-        const inputs = host.shadowRoot.querySelectorAll('input, select');
-        const inv = Array.from(inputs)
-            .filter(el => el.willValidate && !el.checkValidity())
-            .map(el => ({id: el.id, msg: el.validationMessage, value: el.value}));
-        return {valid: inv.length === 0, invalidos: inv};
-    }""")
-    log.info(f"  Formulario válido: {estado['valid']} | "
-             f"Inválidos: {estado['invalidos']}")
-    await page.screenshot(path="debug_04_form_complete.png")
-    log.info("  screenshot: debug_04_form_complete.png")
-    return estado.get('valid', True)
+
+async def set_passengers(page):
+    """Abre VIAJEROS y agrega 1 pasajero con el botón +."""
+    log.info("  viajeros: abriendo selector...")
+
+    passengers_seg = page.locator(".sf-searchbar__segment--passengers")
+    await passengers_seg.click()
+    await page.wait_for_timeout(800)
+
+    plus_btn = page.locator(".sf-counter-btn", has_text="+")
+    try:
+        await plus_btn.first.click(timeout=5000)
+        log.info("  viajeros: +1 ✓")
+    except PWTimeout:
+        log.error("  viajeros: botón + no encontrado")
+
+    await page.wait_for_timeout(600)
+    # Cerrar dropdown
+    await page.keyboard.press("Escape")
+    await page.wait_for_timeout(400)
+
+
+async def fill_contact(page):
+    """Llena EMAIL y TELÉFONO — ambos visibles en la barra antes de cotizar."""
+    log.info("  contacto: llenando email y teléfono...")
+
+    email_inp = page.locator("input[placeholder='tu@email.com']")
+    await email_inp.fill(FORM_CONFIG["email"])
+    log.info(f"  email -> {FORM_CONFIG['email']} ✓")
+    await page.wait_for_timeout(300)
+
+    phone_inp = page.locator("input[placeholder='+1 234 567 890']")
+    await phone_inp.fill(FORM_CONFIG["cel"])
+    log.info(f"  teléfono -> {FORM_CONFIG['cel']} ✓")
+    await page.wait_for_timeout(300)
 
 
 async def click_cotizar(page):
-    """Click 'Cotiza Gratis' — pierce shadow DOM."""
+    """Click en el botón CTA de la barra."""
+    log.info("  cotizar: buscando botón...")
+
     try:
-        btn = page.locator('#spv-quote-latest-home').locator('#btn-quote')
-        await btn.click(timeout=10000)
-        log.info("click_cotizar -> clicked via locator")
+        cta = page.locator(".sf-searchbar__cta")
+        await cta.first.click(timeout=10000)
+        log.info("  cotizar -> .sf-searchbar__cta clickeado ✓")
         return True
-    except Exception as e:
-        log.error(f"click_cotizar locator failed: {e}")
-
-    ok = await page.evaluate("""() => {
-        const host = document.getElementById('spv-quote-latest-home');
-        if (!host || !host.shadowRoot) return 'no-host';
-        const btn = host.shadowRoot.getElementById('btn-quote');
-        if (!btn) return 'no-btn';
-        btn.click();
-        return 'eval-clicked';
-    }""")
-    log.info(f"click_cotizar fallback -> {ok}")
-    return True
+    except PWTimeout:
+        log.error("  cotizar -> .sf-searchbar__cta no encontrado")
+        return False
 
 
-# ── extraction ──────────────────────────────────────────────────────────────
+# ── Extracción de planes ──────────────────────────────────────────────────────
 
 async def extract_plans(page, days):
-    """Espera 'Precio hoy' y extrae planes de la página /cotizar/."""
+    """Espera 'Precio hoy' y extrae nombre, precio, precio original y descuento."""
     plans = []
     try:
         await page.wait_for_selector("text=Precio hoy", timeout=30000)
     except PWTimeout:
-        log.error(f"'Precio hoy' never appeared for {days}d. URL={page.url}")
+        log.error(f"'Precio hoy' no apareció para {days}d. URL={page.url}")
         return [{'plan': 'NO_RESULTS', 'price': '', 'original_price': '',
                  'discount': '', 'days': days}]
 
@@ -321,7 +149,7 @@ async def extract_plans(page, days):
     await human_pause(page, 1500, 3000)
 
     cards = await page.locator("div").filter(has_text="Precio hoy").all()
-    log.info(f"Found {len(cards)} 'Precio hoy' cards for {days}d")
+    log.info(f"  {len(cards)} tarjetas encontradas para {days}d")
 
     for card in cards:
         try:
@@ -336,9 +164,9 @@ async def extract_plans(page, days):
         if not plan_m or not price_m:
             continue
 
-        plan_name = plan_m.group(1)
-        price_raw = re.sub(r'[^\d]', '', price_m.group(1))
-        discount  = f"-{disc_m.group(1)}%" if disc_m else ''
+        plan_name  = plan_m.group(1)
+        price_raw  = re.sub(r'[^\d]', '', price_m.group(1))
+        discount   = f"-{disc_m.group(1)}%" if disc_m else ''
         prices_all = re.findall(r'\$([\d,.]+)\s*COP', text)
         orig_raw   = re.sub(r'[^\d]', '', prices_all[1]) if len(prices_all) > 1 else ''
 
@@ -349,50 +177,64 @@ async def extract_plans(page, days):
         log.info(f"  {days}d | {plan_name} | {price_raw} COP | {discount}")
 
     if not plans:
-        log.error(f"No valid cards parsed for {days}d")
+        log.error(f"  Ningún plan válido para {days}d")
         plans.append({'plan': 'NO_RESULTS', 'price': '', 'original_price': '',
                       'discount': '', 'days': days})
     return plans
 
 
-# ── single quote ────────────────────────────────────────────────────────────
+# ── Cotización individual ─────────────────────────────────────────────────────
 
 async def quote_one(page, days):
-    """Navega al home, llena todo el formulario, cotiza y extrae."""
+    """Navega al home, llena la barra completa y extrae los planes."""
     dep = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
     ret = (datetime.now() + timedelta(days=30 + days)).strftime('%Y-%m-%d')
-    log.info(f"=== Quote {days}d | {dep} -> {ret} ===")
+    log.info(f"=== Cotización {days}d | {dep} -> {ret} ===")
 
     await page.goto(URL_HOME, wait_until='domcontentloaded', timeout=30000)
     await human_pause(page, 2000, 4000)
-    await page.wait_for_selector("#spv-quote-latest-home", timeout=30000)
-    await page.wait_for_timeout(5000)
 
-    if days == 10:
-        await dump_shadow_fields(page)
+    try:
+        await page.wait_for_selector(".sf-searchbar__segment", timeout=20000)
+    except PWTimeout:
+        log.error(f"  Searchbar no cargó para {days}d")
+        return [{'plan': 'ERROR', 'price': '', 'original_price': '', 'discount': '', 'days': days}]
 
-    await fill_form(page, dep, ret)
-    await human_pause(page, 800, 1500)
+    await page.wait_for_timeout(1500)
+
+    # Orden exacto de la barra: Destino → Fechas → Viajeros → Email → Tel → Cotizar
+    await select_destination(page)
+    await human_pause(page, 800, 1400)
+
+    await set_dates(page, dep, ret)
+    await human_pause(page, 800, 1400)
+
+    await set_passengers(page)
+    await human_pause(page, 800, 1400)
+
+    await fill_contact(page)
+    await human_pause(page, 600, 1000)
 
     await page.screenshot(path=f"debug_pre_{days}d.png", full_page=False)
     await click_cotizar(page)
 
     try:
-        await page.wait_for_url('**/cotizar/**', timeout=20000)
-        log.info(f"  Navegó a: {page.url}")
+        await page.wait_for_url(RESULTS_URL_PATTERN, timeout=20000)
+        log.info(f"  → {page.url}")
     except PWTimeout:
-        log.error(f"No /cotizar/ navigation for {days}d. URL={page.url}")
-        await page.screenshot(path=f"debug_post_{days}d.png", full_page=True)
+        log.error(f"  Sin redirección a /cotizar/plans/ para {days}d. URL={page.url}")
+        await page.screenshot(path=f"debug_fail_{days}d.png", full_page=True)
+        return [{'plan': 'ERROR', 'price': '', 'original_price': '', 'discount': '', 'days': days}]
 
     await page.wait_for_load_state('networkidle', timeout=20000)
     await human_pause(page, 2000, 4000)
     return await extract_plans(page, days)
 
 
-# ── main entry ──────────────────────────────────────────────────────────────
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 async def run():
-    log.info("SPV scraper start — single session, 10/20/30 days, Europa")
+    log.info("Segurosfly Bot — scraping 1 a 30 días — Europa y Mediterraneo")
     all_plans = []
 
     async with async_playwright() as p:
@@ -412,22 +254,24 @@ async def run():
             "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
         )
 
-        for days in [10, 20, 30]:
+        for days in range(1, 31):
             try:
                 plans = await quote_one(page, days)
                 all_plans.extend(plans)
+                log.info(f"  ✓ {days}d completado ({len(plans)} planes)")
             except Exception as exc:
-                log.error(f"quote_one({days}) crashed: {exc}")
+                log.error(f"  ✗ quote_one({days}d) falló: {exc}")
                 all_plans.append({'plan': 'ERROR', 'price': '', 'original_price': '',
                                    'discount': '', 'days': days})
+
             await human_pause(page, 3000, 6000)
 
         await ctx.close()
         await browser.close()
 
-    log.info(f"Done. {len(all_plans)} records collected.")
+    log.info(f"Finalizado. {len(all_plans)} registros totales.")
     for r in all_plans:
-        log.info(f"  {r['days']}d | {r['plan']} | {r.get('price','')} COP")
+        log.info(f"  {r['days']}d | {r['plan']} | {r.get('price','')} COP | {r.get('discount','')}")
     return all_plans
 
 

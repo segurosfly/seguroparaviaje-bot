@@ -7,7 +7,7 @@ from logger import log
 
 def main():
     log.info('=' * 55)
-    log.info('SPV Intelligence Bot - inicio')
+    log.info('Segurosfly Bot - inicio')
     log.info('=' * 55)
 
     # 1. Scraping

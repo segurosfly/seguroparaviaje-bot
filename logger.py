@@ -17,7 +17,7 @@ logging.basicConfig(
     ]
 )
 
-_logger = logging.getLogger("spv")
+_logger = logging.getLogger("segurosfly")
 
 
 class _CallableLogger:

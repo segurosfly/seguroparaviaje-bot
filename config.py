@@ -2,10 +2,10 @@ import os
 from datetime import datetime, timedelta
 
 # Sitio
-URL_HOME    = "https://seguroparaviaje.com.co/"
+URL_HOME    = "https://segurosfly.com/es"
 ORIGIN      = "Colombia"
-DESTINATION = "Europa"
-DURATIONS   = [10, 20, 30]
+DESTINATION = "Europa y Mediterraneo"
+DURATIONS   = list(range(1, 31))  # 1 a 30 días
 
 # Datos del formulario (obligatorios)
 USER_NAME   = "Nirvia"
