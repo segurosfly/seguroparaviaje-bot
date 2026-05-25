@@ -25,7 +25,6 @@ async def human_pause(page, lo=2000, hi=5000):
 # ── Pasos del formulario ──────────────────────────────────────────────────────
 
 async def select_origin(page):
-    """Índice 1 = ORIGEN. Asegura Colombia."""
     log.info("  origen: verificando...")
     segments = page.locator(".sf-searchbar__segment")
     origen_txt = await segments.nth(1).inner_text()
@@ -33,14 +32,11 @@ async def select_origin(page):
         log.info("  origen -> Colombia ya seleccionado ✓")
         return True
 
-    log.info("  origen -> cambiando a Colombia...")
     await segments.nth(1).click()
     await page.wait_for_timeout(1000)
-
     inp = page.locator(".react-select__input")
     await inp.fill("Colombia")
     await page.wait_for_timeout(800)
-
     option = page.locator(".react-select__option", has_text="Colombia")
     try:
         await option.first.click(timeout=8000)
@@ -52,18 +48,13 @@ async def select_origin(page):
 
 
 async def select_destination(page):
-    """Índice 2 = DESTINO. Escribe 'Europa' y elige 'Europa y Mediterraneo'."""
     log.info("  destino: abriendo selector...")
-
     segments = page.locator(".sf-searchbar__segment")
     await segments.nth(2).click()
     await page.wait_for_timeout(1000)
-
-    # FIX: el input es .react-select__input directamente (no tiene hijo input)
     inp = page.locator(".react-select__input")
     await inp.fill("Europa")
     await page.wait_for_timeout(800)
-
     option = page.locator(".react-select__option", has_text="Europa y Mediterraneo")
     try:
         await option.first.click(timeout=8000)
@@ -80,7 +71,7 @@ async def select_destination(page):
 
 
 async def set_dates(page, dep: str, ret: str):
-    """Abre FECHAS y selecciona el preset que coincide con los días."""
+    """Selecciona fechas usando preset o inputs directos."""
     dep_dt = datetime.strptime(dep, '%Y-%m-%d')
     ret_dt = datetime.strptime(ret, '%Y-%m-%d')
     days   = (ret_dt - dep_dt).days
@@ -95,7 +86,6 @@ async def set_dates(page, dep: str, ret: str):
         await preset_btn.first.click(timeout=5000)
         log.info(f"  fechas: preset {days}d ✓")
     else:
-        log.info(f"  fechas: sin preset exacto — usando inputs directos")
         date_inputs = await page.locator("input[type='date']").all()
         if len(date_inputs) >= 2:
             await date_inputs[0].fill(dep)
@@ -108,34 +98,27 @@ async def set_dates(page, dep: str, ret: str):
 
 
 async def set_passengers(page):
-    """Abre VIAJEROS y agrega 1 pasajero con el botón +."""
     log.info("  viajeros: abriendo selector...")
-
     passengers_seg = page.locator(".sf-searchbar__segment--passengers")
     await passengers_seg.click()
     await page.wait_for_timeout(800)
-
     plus_btn = page.locator(".sf-counter-btn", has_text="+")
     try:
         await plus_btn.first.click(timeout=5000)
         log.info("  viajeros: +1 ✓")
     except PWTimeout:
         log.error("  viajeros: botón + no encontrado")
-
     await page.wait_for_timeout(600)
     await page.keyboard.press("Escape")
     await page.wait_for_timeout(400)
 
 
 async def fill_contact(page):
-    """Llena EMAIL y TELÉFONO en la barra."""
     log.info("  contacto: llenando email y teléfono...")
-
     email_inp = page.locator("input[placeholder='tu@email.com']")
     await email_inp.fill(FORM_CONFIG["email"])
     log.info(f"  email -> {FORM_CONFIG['email']} ✓")
     await page.wait_for_timeout(300)
-
     phone_inp = page.locator("input[placeholder='+1 234 567 890']")
     await phone_inp.fill(FORM_CONFIG["cel"])
     log.info(f"  teléfono -> {FORM_CONFIG['cel']} ✓")
@@ -143,7 +126,6 @@ async def fill_contact(page):
 
 
 async def click_cotizar(page):
-    """Click en el botón CTA de la barra."""
     log.info("  cotizar: buscando botón...")
     try:
         cta = page.locator(".sf-searchbar__cta")
@@ -158,7 +140,10 @@ async def click_cotizar(page):
 # ── Extracción de planes ──────────────────────────────────────────────────────
 
 async def extract_plans(page, days):
-    """Espera 'TOTAL A PAGAR' y extrae planes Smart/Plus/Max/Elite."""
+    """
+    Espera 'TOTAL A PAGAR' y extrae planes únicos.
+    Usa un set para deduplicar por (plan, precio).
+    """
     plans = []
     try:
         await page.wait_for_selector("text=TOTAL A PAGAR", timeout=30000)
@@ -173,6 +158,8 @@ async def extract_plans(page, days):
     cards = await page.locator("div").filter(has_text="TOTAL A PAGAR").all()
     log.info(f"  {len(cards)} tarjetas encontradas para {days}d")
 
+    seen = set()  # deduplicar por (plan_name, price_raw)
+
     for card in cards:
         try:
             text = await card.inner_text()
@@ -186,10 +173,15 @@ async def extract_plans(page, days):
         if not plan_m or not price_m:
             continue
 
-        plan_name  = plan_m.group(1)
-        price_raw  = re.sub(r'[^\d]', '', price_m.group(1))
+        plan_name = plan_m.group(1)
+        price_raw = re.sub(r'[^\d]', '', price_m.group(1))
+        key       = (plan_name, price_raw)
+
+        if key in seen:
+            continue  # ya lo tenemos
+        seen.add(key)
+
         discount   = f"-{disc_m.group(1)}%" if disc_m else ''
-        # Precio original (tachado) — segunda ocurrencia de COP
         prices_all = re.findall(r'COP ([\d,.]+)', text)
         orig_raw   = re.sub(r'[^\d]', '', prices_all[1]) if len(prices_all) > 1 else ''
 
@@ -209,7 +201,6 @@ async def extract_plans(page, days):
 # ── Cotización individual ─────────────────────────────────────────────────────
 
 async def quote_one(page, days):
-    """Navega al home, llena la barra completa y extrae los planes."""
     dep = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
     ret = (datetime.now() + timedelta(days=30 + days)).strftime('%Y-%m-%d')
     log.info(f"=== Cotización {days}d | {dep} -> {ret} ===")
@@ -225,19 +216,14 @@ async def quote_one(page, days):
 
     await page.wait_for_timeout(1500)
 
-    # Orden: Origen → Destino → Fechas → Viajeros → Email → Tel → Cotizar
     await select_origin(page)
     await human_pause(page, 600, 1000)
-
     await select_destination(page)
     await human_pause(page, 800, 1400)
-
     await set_dates(page, dep, ret)
     await human_pause(page, 800, 1400)
-
     await set_passengers(page)
     await human_pause(page, 800, 1400)
-
     await fill_contact(page)
     await human_pause(page, 600, 1000)
 
@@ -248,7 +234,7 @@ async def quote_one(page, days):
         await page.wait_for_url(RESULTS_URL_PATTERN, timeout=20000)
         log.info(f"  → {page.url}")
     except PWTimeout:
-        log.error(f"  Sin redirección a /cotizar/plans/ para {days}d. URL={page.url}")
+        log.error(f"  Sin redirección para {days}d. URL={page.url}")
         await page.screenshot(path=f"debug_fail_{days}d.png", full_page=True)
         return [{'plan': 'ERROR', 'price': '', 'original_price': '', 'discount': '', 'days': days}]
 
@@ -260,7 +246,7 @@ async def quote_one(page, days):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 async def run():
-    log.info("Segurosfly Bot — scraping 1 a 30 días — Europa y Mediterraneo")
+    log.info("Segurosfly Bot — cotización 10 días — Europa y Mediterraneo")
     all_plans = []
 
     async with async_playwright() as p:
@@ -280,31 +266,18 @@ async def run():
             "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
         )
 
-        for days in range(1, 31):
-            try:
-                plans = await quote_one(page, days)
-                all_plans.extend(plans)
-                log.info(f"  ✓ {days}d completado ({len(plans)} planes)")
-
-                # Si día 1 no encuentra planes, abortar todo
-                if days == 1 and all(p['plan'] in ('NO_RESULTS', 'ERROR') for p in plans):
-                    log.error("  Primera cotización sin resultados — abortando")
-                    break
-
-            except Exception as exc:
-                log.error(f"  ✗ quote_one({days}d) falló: {exc}")
-                all_plans.append({'plan': 'ERROR', 'price': '', 'original_price': '',
-                                   'discount': '', 'days': days})
-                if days == 1:
-                    log.error("  Fallo en día 1 — abortando")
-                    break
-
-            await human_pause(page, 3000, 6000)
+        try:
+            plans = await quote_one(page, 10)
+            all_plans.extend(plans)
+        except Exception as exc:
+            log.error(f"  quote_one(10d) falló: {exc}")
+            all_plans.append({'plan': 'ERROR', 'price': '', 'original_price': '',
+                               'discount': '', 'days': 10})
 
         await ctx.close()
         await browser.close()
 
-    log.info(f"Finalizado. {len(all_plans)} registros totales.")
+    log.info(f"Finalizado. {len(all_plans)} planes encontrados.")
     for r in all_plans:
         log.info(f"  {r['days']}d | {r['plan']} | {r.get('price','')} COP | {r.get('discount','')}")
     return all_plans
