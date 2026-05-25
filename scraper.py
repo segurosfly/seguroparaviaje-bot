@@ -158,19 +158,19 @@ async def click_cotizar(page):
 # ── Extracción de planes ──────────────────────────────────────────────────────
 
 async def extract_plans(page, days):
-    """Espera 'Precio hoy' y extrae nombre, precio, precio original y descuento."""
+    """Espera 'TOTAL A PAGAR' y extrae planes Smart/Plus/Max/Elite."""
     plans = []
     try:
-        await page.wait_for_selector("text=Precio hoy", timeout=30000)
+        await page.wait_for_selector("text=TOTAL A PAGAR", timeout=30000)
     except PWTimeout:
-        log.error(f"'Precio hoy' no apareció para {days}d. URL={page.url}")
+        log.error(f"'TOTAL A PAGAR' no apareció para {days}d. URL={page.url}")
         return [{'plan': 'NO_RESULTS', 'price': '', 'original_price': '',
                  'discount': '', 'days': days}]
 
     await page.wait_for_load_state("networkidle")
     await human_pause(page, 1500, 3000)
 
-    cards = await page.locator("div").filter(has_text="Precio hoy").all()
+    cards = await page.locator("div").filter(has_text="TOTAL A PAGAR").all()
     log.info(f"  {len(cards)} tarjetas encontradas para {days}d")
 
     for card in cards:
@@ -179,9 +179,9 @@ async def extract_plans(page, days):
         except Exception:
             continue
 
-        plan_m  = re.search(r'(Esencial|Est\u00e1ndar|Ideal)', text)
-        price_m = re.search(r'\$([\d,.]+)\s*COP', text)
-        disc_m  = re.search(r'-(\d+)%', text)
+        plan_m  = re.search(r'(Plan Smart|Plan Plus|Plan Max|Plan Elite)', text)
+        price_m = re.search(r'COP ([\d,.]+)', text)
+        disc_m  = re.search(r'(\d+)%\s*OFF', text)
 
         if not plan_m or not price_m:
             continue
@@ -189,7 +189,8 @@ async def extract_plans(page, days):
         plan_name  = plan_m.group(1)
         price_raw  = re.sub(r'[^\d]', '', price_m.group(1))
         discount   = f"-{disc_m.group(1)}%" if disc_m else ''
-        prices_all = re.findall(r'\$([\d,.]+)\s*COP', text)
+        # Precio original (tachado) — segunda ocurrencia de COP
+        prices_all = re.findall(r'COP ([\d,.]+)', text)
         orig_raw   = re.sub(r'[^\d]', '', prices_all[1]) if len(prices_all) > 1 else ''
 
         plans.append({
@@ -284,10 +285,19 @@ async def run():
                 plans = await quote_one(page, days)
                 all_plans.extend(plans)
                 log.info(f"  ✓ {days}d completado ({len(plans)} planes)")
+
+                # Si día 1 no encuentra planes, abortar todo
+                if days == 1 and all(p['plan'] in ('NO_RESULTS', 'ERROR') for p in plans):
+                    log.error("  Primera cotización sin resultados — abortando")
+                    break
+
             except Exception as exc:
                 log.error(f"  ✗ quote_one({days}d) falló: {exc}")
                 all_plans.append({'plan': 'ERROR', 'price': '', 'original_price': '',
                                    'discount': '', 'days': days})
+                if days == 1:
+                    log.error("  Fallo en día 1 — abortando")
+                    break
 
             await human_pause(page, 3000, 6000)
 
