@@ -10,8 +10,6 @@ from logger import log
 # ── Configuración ────────────────────────────────────────────────────────────
 RESULTS_URL_PATTERN = "**/cotizar/plans/**"
 
-from config import USER_EMAIL, USER_PHONE
-
 FORM_CONFIG = {
     "email": USER_EMAIL,
     "cel":   USER_PHONE,
@@ -26,6 +24,33 @@ async def human_pause(page, lo=2000, hi=5000):
 
 # ── Pasos del formulario ──────────────────────────────────────────────────────
 
+async def select_origin(page):
+    """Índice 1 = ORIGEN. Asegura Colombia."""
+    log.info("  origen: verificando...")
+    segments = page.locator(".sf-searchbar__segment")
+    origen_txt = await segments.nth(1).inner_text()
+    if "Colombia" in origen_txt:
+        log.info("  origen -> Colombia ya seleccionado ✓")
+        return True
+
+    log.info("  origen -> cambiando a Colombia...")
+    await segments.nth(1).click()
+    await page.wait_for_timeout(1000)
+
+    inp = page.locator(".react-select__input")
+    await inp.fill("Colombia")
+    await page.wait_for_timeout(800)
+
+    option = page.locator(".react-select__option", has_text="Colombia")
+    try:
+        await option.first.click(timeout=8000)
+        log.info("  origen -> Colombia ✓")
+        return True
+    except PWTimeout:
+        log.error("  origen -> Colombia no encontrado")
+        return False
+
+
 async def select_destination(page):
     """Índice 2 = DESTINO. Escribe 'Europa' y elige 'Europa y Mediterraneo'."""
     log.info("  destino: abriendo selector...")
@@ -34,7 +59,8 @@ async def select_destination(page):
     await segments.nth(2).click()
     await page.wait_for_timeout(1000)
 
-    inp = page.locator(".react-select__input input")
+    # FIX: el input es .react-select__input directamente (no tiene hijo input)
+    inp = page.locator(".react-select__input")
     await inp.fill("Europa")
     await page.wait_for_timeout(800)
 
@@ -64,13 +90,11 @@ async def set_dates(page, dep: str, ret: str):
     await dates_seg.click()
     await page.wait_for_timeout(800)
 
-    # Buscar preset exacto por texto
     preset_btn = page.locator(".sf-preset-btn", has_text=str(days))
     if await preset_btn.count() > 0:
         await preset_btn.first.click(timeout=5000)
         log.info(f"  fechas: preset {days}d ✓")
     else:
-        # Sin preset exacto: intentar inputs de fecha directos
         log.info(f"  fechas: sin preset exacto — usando inputs directos")
         date_inputs = await page.locator("input[type='date']").all()
         if len(date_inputs) >= 2:
@@ -99,13 +123,12 @@ async def set_passengers(page):
         log.error("  viajeros: botón + no encontrado")
 
     await page.wait_for_timeout(600)
-    # Cerrar dropdown
     await page.keyboard.press("Escape")
     await page.wait_for_timeout(400)
 
 
 async def fill_contact(page):
-    """Llena EMAIL y TELÉFONO — ambos visibles en la barra antes de cotizar."""
+    """Llena EMAIL y TELÉFONO en la barra."""
     log.info("  contacto: llenando email y teléfono...")
 
     email_inp = page.locator("input[placeholder='tu@email.com']")
@@ -122,11 +145,10 @@ async def fill_contact(page):
 async def click_cotizar(page):
     """Click en el botón CTA de la barra."""
     log.info("  cotizar: buscando botón...")
-
     try:
         cta = page.locator(".sf-searchbar__cta")
         await cta.first.click(timeout=10000)
-        log.info("  cotizar -> .sf-searchbar__cta clickeado ✓")
+        log.info("  cotizar -> clickeado ✓")
         return True
     except PWTimeout:
         log.error("  cotizar -> .sf-searchbar__cta no encontrado")
@@ -202,7 +224,10 @@ async def quote_one(page, days):
 
     await page.wait_for_timeout(1500)
 
-    # Orden exacto de la barra: Destino → Fechas → Viajeros → Email → Tel → Cotizar
+    # Orden: Origen → Destino → Fechas → Viajeros → Email → Tel → Cotizar
+    await select_origin(page)
+    await human_pause(page, 600, 1000)
+
     await select_destination(page)
     await human_pause(page, 800, 1400)
 
