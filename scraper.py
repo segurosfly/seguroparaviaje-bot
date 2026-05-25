@@ -15,6 +15,11 @@ FORM_CONFIG = {
     "cel":   USER_PHONE,
 }
 
+MESES_ES = [
+    'enero','febrero','marzo','abril','mayo','junio',
+    'julio','agosto','septiembre','octubre','noviembre','diciembre'
+]
+
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -26,10 +31,10 @@ def get_dates_10d():
     """
     Calcula siempre desde HOY:
       salida  = hoy + 1 día
-      retorno = hoy + 11 días  (exactamente 10 días de viaje)
+      retorno = hoy + 11 días (10 días de viaje)
     """
-    hoy    = datetime.now()
-    salida = hoy + timedelta(days=1)
+    hoy     = datetime.now()
+    salida  = hoy + timedelta(days=1)
     retorno = hoy + timedelta(days=11)
     return salida, retorno
 
@@ -81,107 +86,182 @@ async def select_destination(page):
         return False
 
 
-async def _click_calendar_day(page, target_date: datetime):
+async def _get_calendar_months(page):
     """
-    Hace click en el día exacto del calendario.
-    Navega meses si el día objetivo no está visible aún.
+    Lee SOLO los títulos de mes dentro del contenedor del calendario.
+    Evita leer todo el texto de la página.
     """
-    dia     = str(target_date.day)
-    mes_num = target_date.month
-    anio    = target_date.year
+    # El calendario tiene un contenedor específico — buscar por clase
+    for cal_selector in [
+        ".sf-datepicker",
+        ".sf-calendar",
+        "[class*='datepicker']",
+        "[class*='calendar-container']",
+        "[class*='DayPicker']",
+        "[class*='react-datepicker']",
+    ]:
+        try:
+            cal = page.locator(cal_selector).first
+            if await cal.is_visible(timeout=1000):
+                # Leer títulos de mes dentro del contenedor
+                titles = await cal.locator(
+                    "[class*='month-title'], [class*='month-caption'], "
+                    "[class*='caption'], [class*='header'] span, "
+                    "h2, h3, [class*='Month']"
+                ).all_inner_texts()
+                if titles:
+                    log.info(f"  calendario ({cal_selector}): títulos = {titles}")
+                    return titles
+        except Exception:
+            continue
 
-    for intento in range(4):  # máximo 4 navegaciones de mes
-        # Leer meses visibles
-        textos = await page.locator(
-            "[class*='calendar__month'], [class*='calendar__header'], "
-            ".sf-calendar__month, h2"
-        ).all_inner_texts()
-        log.info(f"  calendario: meses visibles = {textos} (buscando mes {mes_num}/{anio})")
+    # Fallback: buscar cualquier texto que parezca "Mes Año"
+    all_texts = await page.locator(
+        "[class*='month']:not(script):not(style)"
+    ).all_inner_texts()
+    mes_año = [t.strip() for t in all_texts if any(m in t.lower() for m in MESES_ES) and len(t.strip()) < 30]
+    log.info(f"  calendario fallback títulos = {mes_año}")
+    return mes_año
 
-        # Verificar si el mes/año objetivo está en pantalla
-        mes_visible = any(
-            str(anio) in t and (
-                str(mes_num) in t or
-                target_date.strftime('%B').lower() in t.lower() or
-                # meses en español
-                ['enero','febrero','marzo','abril','mayo','junio',
-                 'julio','agosto','septiembre','octubre','noviembre','diciembre'
-                ][mes_num - 1] in t.lower()
-            )
-            for t in textos
-        )
 
-        if mes_visible or intento == 0:
-            # Intentar click en el día
-            for selector in [
-                f".sf-calendar__day",
-                f"[class*='calendar__day']",
-                f"[class*='calendar'] td",
-                f"[class*='calendar'] button",
-            ]:
-                try:
-                    todos = await page.locator(selector).all()
-                    for btn in todos:
+async def _mes_visible(titulos, target: datetime):
+    """Verifica si el mes/año objetivo está en los títulos del calendario."""
+    mes_es  = MESES_ES[target.month - 1]
+    mes_en  = target.strftime('%B').lower()
+    anio    = str(target.year)
+    for t in titulos:
+        t_lower = t.lower()
+        if anio in t and (mes_es in t_lower or mes_en in t_lower):
+            return True
+    return False
+
+
+async def _click_day_in_calendar(page, target: datetime):
+    """
+    Hace click en el día correcto dentro del calendario visible.
+    Busca el número exacto solo dentro del contenedor del calendario.
+    """
+    dia = str(target.day)
+
+    # Selectores del contenedor del calendario (de más específico a menos)
+    cal_containers = [
+        ".sf-datepicker",
+        ".sf-calendar",
+        "[class*='datepicker']",
+        "[class*='DayPicker']",
+        "[class*='react-datepicker']",
+        "[class*='calendar']",
+    ]
+
+    for container_sel in cal_containers:
+        try:
+            container = page.locator(container_sel).first
+            if not await container.is_visible(timeout=1000):
+                continue
+
+            # Buscar días dentro del contenedor
+            day_selectors = [
+                f"[class*='day']:not([class*='disabled']):not([class*='past']):not([class*='outside'])",
+                "td:not([class*='disabled'])",
+                "button:not([disabled])",
+            ]
+
+            for day_sel in day_selectors:
+                dias = await container.locator(day_sel).all()
+                for btn in dias:
+                    try:
                         txt = (await btn.inner_text()).strip()
                         if txt != dia:
                             continue
-                        cls = await btn.get_attribute('class') or ''
-                        if 'disabled' in cls or 'past' in cls or 'prev' in cls or 'next' in cls:
+                        cls = (await btn.get_attribute('class') or '').lower()
+                        if any(x in cls for x in ['disabled', 'past', 'outside', 'prev', 'next', 'other']):
                             continue
                         await btn.click(timeout=3000)
-                        log.info(f"  calendario: día {dia} clickeado ✓")
+                        log.info(f"  calendario: día {dia} clickeado en {container_sel} ✓")
                         return True
-                except Exception:
-                    continue
+                    except Exception:
+                        continue
+        except Exception:
+            continue
 
-        if mes_visible and intento > 0:
-            break  # mes encontrado pero no pudo clickear — salir
+    # Fallback final: click directo por evaluate en shadow/cualquier DOM
+    result = await page.evaluate(f"""(dia) => {{
+        // Buscar todos los elementos que muestren solo el número del día
+        const all = document.querySelectorAll('[class*="day"], td, [class*="Day"]');
+        for (const el of all) {{
+            const txt = el.innerText?.trim();
+            if (txt !== dia) continue;
+            const cls = el.className?.toLowerCase() || '';
+            if (cls.includes('disabled') || cls.includes('past') || cls.includes('outside')) continue;
+            el.click();
+            return 'ok:' + el.className;
+        }}
+        return 'not-found';
+    }}""", dia)
+    log.info(f"  calendario: evaluate click día {dia} -> {result}")
+    return result.startswith('ok')
 
-        # Navegar al siguiente mes
-        log.info(f"  calendario: avanzando mes (intento {intento + 1})...")
+
+async def _navigate_calendar_to_month(page, target: datetime):
+    """Navega el calendario hasta que el mes objetivo sea visible."""
+    for intento in range(6):
+        titulos = await _get_calendar_months(page)
+        if await _mes_visible(titulos, target):
+            log.info(f"  calendario: mes {MESES_ES[target.month-1]} {target.year} visible ✓")
+            return True
+
+        log.info(f"  calendario: mes no visible aún, avanzando... (intento {intento+1})")
+
+        # Botón "siguiente mes"
         for nav_sel in [
-            "button[class*='next']",
-            "[class*='calendar__nav--next']",
             ".sf-calendar__arrow--right",
-            "[aria-label*='next']",
-            "[aria-label*='siguiente']",
+            "[class*='next-month']",
+            "[class*='nextMonth']",
+            "button[aria-label*='next']",
+            "button[aria-label*='siguiente']",
+            "[class*='nav--next']",
+            "[class*='navigation'] button:last-child",
         ]:
             try:
                 btn = page.locator(nav_sel).first
-                if await btn.is_visible(timeout=1000):
+                if await btn.is_visible(timeout=800):
                     await btn.click()
-                    await page.wait_for_timeout(600)
+                    await page.wait_for_timeout(700)
                     break
             except Exception:
                 continue
 
-    log.error(f"  calendario: no se pudo clickear día {dia}")
+    log.error(f"  calendario: no se llegó al mes {MESES_ES[target.month-1]} {target.year}")
     return False
 
 
 async def set_dates(page, dep_dt: datetime, ret_dt: datetime):
     """
     Abre el selector de fechas y hace click en salida y retorno
-    directamente en el calendario. Siempre usa las fechas calculadas
-    dinámicamente desde hoy.
+    directamente en el calendario. Fechas calculadas dinámicamente.
     """
-    log.info(f"  fechas: {dep_dt.date()} -> {ret_dt.date()} (10 días)")
+    log.info(f"  fechas: {dep_dt.date()} -> {ret_dt.date()} (10 días desde hoy)")
 
-    # Abrir selector
+    # Abrir selector de fechas
     dates_seg = page.locator(".sf-searchbar__segment--dates")
     await dates_seg.click()
-    await page.wait_for_timeout(1200)
+    await page.wait_for_timeout(1500)
 
-    # ── Click en día de SALIDA ───────────────────────────────────────────
-    log.info(f"  fechas: seleccionando salida {dep_dt.day}/{dep_dt.month}...")
-    ok_dep = await _click_calendar_day(page, dep_dt)
+    # Screenshot para ver el estado del calendario
+    await page.screenshot(path="debug_calendar.png", full_page=False)
+
+    # ── SALIDA ──────────────────────────────────────────────────────────
+    log.info(f"  fechas: seleccionando salida {dep_dt.day}/{dep_dt.month}/{dep_dt.year}")
+    await _navigate_calendar_to_month(page, dep_dt)
+    ok_dep = await _click_day_in_calendar(page, dep_dt)
     if not ok_dep:
         log.error("  fechas: falló click en salida")
     await page.wait_for_timeout(800)
 
-    # ── Click en día de RETORNO ──────────────────────────────────────────
-    log.info(f"  fechas: seleccionando retorno {ret_dt.day}/{ret_dt.month}...")
-    ok_ret = await _click_calendar_day(page, ret_dt)
+    # ── RETORNO ─────────────────────────────────────────────────────────
+    log.info(f"  fechas: seleccionando retorno {ret_dt.day}/{ret_dt.month}/{ret_dt.year}")
+    await _navigate_calendar_to_month(page, ret_dt)
+    ok_ret = await _click_day_in_calendar(page, ret_dt)
     if not ok_ret:
         log.error("  fechas: falló click en retorno")
     await page.wait_for_timeout(600)
@@ -250,7 +330,6 @@ async def extract_plans(page, days):
     log.info(f"  {len(cards)} tarjetas encontradas para {days}d")
 
     seen = set()
-
     for card in cards:
         try:
             text = await card.inner_text()
@@ -267,7 +346,6 @@ async def extract_plans(page, days):
         plan_name = plan_m.group(1)
         price_raw = re.sub(r'[^\d]', '', price_m.group(1))
         key       = (plan_name, price_raw)
-
         if key in seen:
             continue
         seen.add(key)
@@ -292,10 +370,7 @@ async def extract_plans(page, days):
 # ── Cotización ────────────────────────────────────────────────────────────────
 
 async def quote_one(page):
-    """
-    Una sola cotización de 10 días.
-    Las fechas se calculan automáticamente desde HOY cada vez que se ejecuta.
-    """
+    """Una sola cotización de 10 días desde HOY."""
     dep_dt, ret_dt = get_dates_10d()
     log.info(f"=== Cotización 10d | {dep_dt.date()} -> {ret_dt.date()} ===")
     log.info(f"    (calculado desde hoy: {datetime.now().strftime('%Y-%m-%d')})")
@@ -313,16 +388,12 @@ async def quote_one(page):
 
     await select_origin(page)
     await human_pause(page, 600, 1000)
-
     await select_destination(page)
     await human_pause(page, 800, 1400)
-
     await set_dates(page, dep_dt, ret_dt)
     await human_pause(page, 800, 1400)
-
     await set_passengers(page)
     await human_pause(page, 800, 1400)
-
     await fill_contact(page)
     await human_pause(page, 600, 1000)
 
