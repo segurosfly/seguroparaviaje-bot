@@ -22,6 +22,18 @@ async def human_pause(page, lo=2000, hi=5000):
     await page.wait_for_timeout(random.randint(lo, hi))
 
 
+def get_dates_10d():
+    """
+    Calcula siempre desde HOY:
+      salida  = hoy + 1 día
+      retorno = hoy + 11 días  (exactamente 10 días de viaje)
+    """
+    hoy    = datetime.now()
+    salida = hoy + timedelta(days=1)
+    retorno = hoy + timedelta(days=11)
+    return salida, retorno
+
+
 # ── Pasos del formulario ──────────────────────────────────────────────────────
 
 async def select_origin(page):
@@ -31,7 +43,6 @@ async def select_origin(page):
     if "Colombia" in origen_txt:
         log.info("  origen -> Colombia ya seleccionado ✓")
         return True
-
     await segments.nth(1).click()
     await page.wait_for_timeout(1000)
     inp = page.locator(".react-select__input")
@@ -70,31 +81,114 @@ async def select_destination(page):
         return False
 
 
-async def set_dates(page, dep: str, ret: str):
-    """Selecciona fechas usando preset o inputs directos."""
-    dep_dt = datetime.strptime(dep, '%Y-%m-%d')
-    ret_dt = datetime.strptime(ret, '%Y-%m-%d')
-    days   = (ret_dt - dep_dt).days
-    log.info(f"  fechas: {dep} -> {ret} ({days}d)")
+async def _click_calendar_day(page, target_date: datetime):
+    """
+    Hace click en el día exacto del calendario.
+    Navega meses si el día objetivo no está visible aún.
+    """
+    dia     = str(target_date.day)
+    mes_num = target_date.month
+    anio    = target_date.year
 
+    for intento in range(4):  # máximo 4 navegaciones de mes
+        # Leer meses visibles
+        textos = await page.locator(
+            "[class*='calendar__month'], [class*='calendar__header'], "
+            ".sf-calendar__month, h2"
+        ).all_inner_texts()
+        log.info(f"  calendario: meses visibles = {textos} (buscando mes {mes_num}/{anio})")
+
+        # Verificar si el mes/año objetivo está en pantalla
+        mes_visible = any(
+            str(anio) in t and (
+                str(mes_num) in t or
+                target_date.strftime('%B').lower() in t.lower() or
+                # meses en español
+                ['enero','febrero','marzo','abril','mayo','junio',
+                 'julio','agosto','septiembre','octubre','noviembre','diciembre'
+                ][mes_num - 1] in t.lower()
+            )
+            for t in textos
+        )
+
+        if mes_visible or intento == 0:
+            # Intentar click en el día
+            for selector in [
+                f".sf-calendar__day",
+                f"[class*='calendar__day']",
+                f"[class*='calendar'] td",
+                f"[class*='calendar'] button",
+            ]:
+                try:
+                    todos = await page.locator(selector).all()
+                    for btn in todos:
+                        txt = (await btn.inner_text()).strip()
+                        if txt != dia:
+                            continue
+                        cls = await btn.get_attribute('class') or ''
+                        if 'disabled' in cls or 'past' in cls or 'prev' in cls or 'next' in cls:
+                            continue
+                        await btn.click(timeout=3000)
+                        log.info(f"  calendario: día {dia} clickeado ✓")
+                        return True
+                except Exception:
+                    continue
+
+        if mes_visible and intento > 0:
+            break  # mes encontrado pero no pudo clickear — salir
+
+        # Navegar al siguiente mes
+        log.info(f"  calendario: avanzando mes (intento {intento + 1})...")
+        for nav_sel in [
+            "button[class*='next']",
+            "[class*='calendar__nav--next']",
+            ".sf-calendar__arrow--right",
+            "[aria-label*='next']",
+            "[aria-label*='siguiente']",
+        ]:
+            try:
+                btn = page.locator(nav_sel).first
+                if await btn.is_visible(timeout=1000):
+                    await btn.click()
+                    await page.wait_for_timeout(600)
+                    break
+            except Exception:
+                continue
+
+    log.error(f"  calendario: no se pudo clickear día {dia}")
+    return False
+
+
+async def set_dates(page, dep_dt: datetime, ret_dt: datetime):
+    """
+    Abre el selector de fechas y hace click en salida y retorno
+    directamente en el calendario. Siempre usa las fechas calculadas
+    dinámicamente desde hoy.
+    """
+    log.info(f"  fechas: {dep_dt.date()} -> {ret_dt.date()} (10 días)")
+
+    # Abrir selector
     dates_seg = page.locator(".sf-searchbar__segment--dates")
     await dates_seg.click()
+    await page.wait_for_timeout(1200)
+
+    # ── Click en día de SALIDA ───────────────────────────────────────────
+    log.info(f"  fechas: seleccionando salida {dep_dt.day}/{dep_dt.month}...")
+    ok_dep = await _click_calendar_day(page, dep_dt)
+    if not ok_dep:
+        log.error("  fechas: falló click en salida")
     await page.wait_for_timeout(800)
 
-    preset_btn = page.locator(".sf-preset-btn", has_text=str(days))
-    if await preset_btn.count() > 0:
-        await preset_btn.first.click(timeout=5000)
-        log.info(f"  fechas: preset {days}d ✓")
-    else:
-        date_inputs = await page.locator("input[type='date']").all()
-        if len(date_inputs) >= 2:
-            await date_inputs[0].fill(dep)
-            await date_inputs[1].fill(ret)
-            log.info(f"  fechas: inputs llenados ✓")
-        else:
-            log.error(f"  fechas: no se encontró preset ni inputs para {days}d")
-
+    # ── Click en día de RETORNO ──────────────────────────────────────────
+    log.info(f"  fechas: seleccionando retorno {ret_dt.day}/{ret_dt.month}...")
+    ok_ret = await _click_calendar_day(page, ret_dt)
+    if not ok_ret:
+        log.error("  fechas: falló click en retorno")
     await page.wait_for_timeout(600)
+
+    # Cerrar calendario
+    await page.keyboard.press('Escape')
+    await page.wait_for_timeout(500)
 
 
 async def set_passengers(page):
@@ -140,10 +234,7 @@ async def click_cotizar(page):
 # ── Extracción de planes ──────────────────────────────────────────────────────
 
 async def extract_plans(page, days):
-    """
-    Espera 'TOTAL A PAGAR' y extrae planes únicos.
-    Usa un set para deduplicar por (plan, precio).
-    """
+    """Espera 'TOTAL A PAGAR' y extrae planes únicos sin duplicados."""
     plans = []
     try:
         await page.wait_for_selector("text=TOTAL A PAGAR", timeout=30000)
@@ -158,7 +249,7 @@ async def extract_plans(page, days):
     cards = await page.locator("div").filter(has_text="TOTAL A PAGAR").all()
     log.info(f"  {len(cards)} tarjetas encontradas para {days}d")
 
-    seen = set()  # deduplicar por (plan_name, price_raw)
+    seen = set()
 
     for card in cards:
         try:
@@ -178,7 +269,7 @@ async def extract_plans(page, days):
         key       = (plan_name, price_raw)
 
         if key in seen:
-            continue  # ya lo tenemos
+            continue
         seen.add(key)
 
         discount   = f"-{disc_m.group(1)}%" if disc_m else ''
@@ -198,12 +289,16 @@ async def extract_plans(page, days):
     return plans
 
 
-# ── Cotización individual ─────────────────────────────────────────────────────
+# ── Cotización ────────────────────────────────────────────────────────────────
 
-async def quote_one(page, days):
-    dep = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-    ret = (datetime.now() + timedelta(days=30 + days)).strftime('%Y-%m-%d')
-    log.info(f"=== Cotización {days}d | {dep} -> {ret} ===")
+async def quote_one(page):
+    """
+    Una sola cotización de 10 días.
+    Las fechas se calculan automáticamente desde HOY cada vez que se ejecuta.
+    """
+    dep_dt, ret_dt = get_dates_10d()
+    log.info(f"=== Cotización 10d | {dep_dt.date()} -> {ret_dt.date()} ===")
+    log.info(f"    (calculado desde hoy: {datetime.now().strftime('%Y-%m-%d')})")
 
     await page.goto(URL_HOME, wait_until='domcontentloaded', timeout=30000)
     await human_pause(page, 2000, 4000)
@@ -211,42 +306,46 @@ async def quote_one(page, days):
     try:
         await page.wait_for_selector(".sf-searchbar__segment", timeout=20000)
     except PWTimeout:
-        log.error(f"  Searchbar no cargó para {days}d")
-        return [{'plan': 'ERROR', 'price': '', 'original_price': '', 'discount': '', 'days': days}]
+        log.error("  Searchbar no cargó")
+        return [{'plan': 'ERROR', 'price': '', 'original_price': '', 'discount': '', 'days': 10}]
 
     await page.wait_for_timeout(1500)
 
     await select_origin(page)
     await human_pause(page, 600, 1000)
+
     await select_destination(page)
     await human_pause(page, 800, 1400)
-    await set_dates(page, dep, ret)
+
+    await set_dates(page, dep_dt, ret_dt)
     await human_pause(page, 800, 1400)
+
     await set_passengers(page)
     await human_pause(page, 800, 1400)
+
     await fill_contact(page)
     await human_pause(page, 600, 1000)
 
-    await page.screenshot(path=f"debug_pre_{days}d.png", full_page=False)
+    await page.screenshot(path="debug_pre_10d.png", full_page=False)
     await click_cotizar(page)
 
     try:
         await page.wait_for_url(RESULTS_URL_PATTERN, timeout=20000)
         log.info(f"  → {page.url}")
     except PWTimeout:
-        log.error(f"  Sin redirección para {days}d. URL={page.url}")
-        await page.screenshot(path=f"debug_fail_{days}d.png", full_page=True)
-        return [{'plan': 'ERROR', 'price': '', 'original_price': '', 'discount': '', 'days': days}]
+        log.error(f"  Sin redirección. URL={page.url}")
+        await page.screenshot(path="debug_fail_10d.png", full_page=True)
+        return [{'plan': 'ERROR', 'price': '', 'original_price': '', 'discount': '', 'days': 10}]
 
     await page.wait_for_load_state('networkidle', timeout=20000)
     await human_pause(page, 2000, 4000)
-    return await extract_plans(page, days)
+    return await extract_plans(page, 10)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 async def run():
-    log.info("Segurosfly Bot — cotización 10 días — Europa y Mediterraneo")
+    log.info("Segurosfly Bot — cotización 10 días desde HOY — Europa y Mediterraneo")
     all_plans = []
 
     async with async_playwright() as p:
@@ -267,10 +366,10 @@ async def run():
         )
 
         try:
-            plans = await quote_one(page, 10)
+            plans = await quote_one(page)
             all_plans.extend(plans)
         except Exception as exc:
-            log.error(f"  quote_one(10d) falló: {exc}")
+            log.error(f"  quote_one falló: {exc}")
             all_plans.append({'plan': 'ERROR', 'price': '', 'original_price': '',
                                'discount': '', 'days': 10})
 
