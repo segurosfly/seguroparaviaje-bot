@@ -1,0 +1,40 @@
+name: Debug Selector
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install playwright
+
+      - name: Install Playwright browsers
+        run: |
+          sudo apt-get install -y libasound2t64 || true
+          python -m playwright install chromium
+
+      - name: Run debug
+        run: python debug_selector.py 2>&1 | tee debug_output.txt
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-results
+          path: |
+            debug_output.txt
+            debug_A_home.png
+            debug_B_after_click_seg2.png
+          retention-days: 1
